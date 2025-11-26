@@ -98,7 +98,7 @@ def test_inference_base_model():
     # Load test image
     print("\n2. Loading test image...")
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    image_path = os.path.join(script_dir, 'kitchen.jpg')
+    image_path = os.path.join(script_dir, 'white_square.png')
     prompt_image = Image.open(image_path)
     print(f"   Image loaded from: {image_path}")
     print(f"   Input image size: {prompt_image.size}")
@@ -110,7 +110,7 @@ def test_inference_base_model():
     print(f"   Output dimensions: {output_width}x{output_height}")
     
     # Set the prompt
-    prompt = 'Add 9 red balloons to the kitchen without changing anything else about the image. Make sure none of the balloons are touching each other or overlapping with each other.'
+    prompt = 'add 12 red dots to the image'
     print(f"\n3. Prompt: '{prompt}'")
     
     # Run inference
@@ -129,7 +129,7 @@ def test_inference_base_model():
     
     # Save result in inference_examples directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(script_dir, 'inference_output_base_5.png')
+    output_path = os.path.join(script_dir, 'inference_output_base_6.png')
     result[0].save(output_path)
     print(f"\n5. ✅ Success! Result saved to: {output_path}")
     
