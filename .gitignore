@@ -236,3 +236,6 @@ __marimo__/
 
 # Training outputs and checkpoints (backed up to HuggingFace separately)
 outputs/
+# But allow TensorBoard logs (small enough for git)
+!outputs/**/events.out.tfevents*
+!outputs/**/train_config.yaml

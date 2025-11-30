@@ -1,0 +1,140 @@
+trainer: FluxKontext
+mode: fit
+model:
+  pretrained_model_name_or_path: lrzjason/flux-kontext-nf4
+  lora:
+    r: 16
+    lora_alpha: 16
+    init_lora_weights: gaussian
+    target_modules:
+    - to_k
+    - to_q
+    - to_v
+    - to_out.0
+    adapter_name: lora_edit
+  quantize: false
+  use_vlm_prompt_enhancer: false
+data:
+  class_path: qflux.data.dataset.ImageDataset
+  init_args:
+    dataset_path:
+    - /home/ubuntu/sanjana-fs/qwen-image-finetune/data/easy_circle/train
+    caption_dropout_rate: 0.05
+    prompt_image_dropout_rate: 0.05
+    cache_dir: /home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_lora/cache
+    use_cache: true
+    use_edit_mask: false
+    prompt_empty_drop_keys:
+    - prompt_embeds
+    - pooled_prompt_embeds
+    processor:
+      class_path: qflux.data.preprocess.ImageProcessor
+      init_args:
+        process_type: center_crop
+        resize_mode: bilinear
+        target_size:
+        - 512
+        - 512
+        controls_size:
+        - - 512
+          - 512
+        max_aspect_ratio: 3.0
+        resize_controls_mask_to_image: false
+  batch_size: 2
+  num_workers: 4
+  shuffle: true
+validation:
+  enabled: true
+  steps: 50
+  max_samples: 2
+  seed: 42
+  dataset:
+    class_path: qflux.data.dataset.ImageDataset
+    init_args:
+      dataset_path:
+      - /home/ubuntu/sanjana-fs/qwen-image-finetune/data/easy_circle/val
+      caption_dropout_rate: 0.0
+      prompt_image_dropout_rate: 0.0
+      cache_dir: ''
+      use_cache: false
+      use_edit_mask: false
+      processor:
+        class_path: qflux.data.preprocess.ImageProcessor
+        init_args:
+          process_type: center_crop
+          resize_mode: bilinear
+          target_size:
+          - 512
+          - 512
+          controls_size:
+          - - 512
+            - 512
+          max_aspect_ratio: 3.0
+          resize_controls_mask_to_image: false
+    batch_size: 1
+    num_workers: 1
+    shuffle: true
+logging:
+  output_dir: /home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_lora/easy_circle_flux_kontext/v0
+  report_to: tensorboard
+  tracker_project_name: easy_circle_flux_kontext
+  tags:
+  - easy_circle
+  - flux_kontext
+  - red_dots
+  notes: Fine-tuning FLUX Kontext to add red dots to blank images
+optimizer:
+  class_path: bitsandbytes.optim.Adam8bit
+  init_args:
+    lr: 0.0001
+    betas:
+    - 0.9
+    - 0.999
+lr_scheduler:
+  scheduler_type: cosine
+  warmup_steps: 100
+  num_cycles: 0.5
+  power: 1.0
+train:
+  train_batch_size: 2
+  gradient_accumulation_steps: 1
+  max_train_steps: 300
+  num_epochs: 3
+  checkpointing_steps: 100
+  checkpoints_total_limit: 5
+  max_grad_norm: 1.0
+  mixed_precision: bf16
+  gradient_checkpointing: true
+  low_memory: true
+cache:
+  devices:
+    vae: cuda:0
+    text_encoder: cuda:0
+    text_encoder_2: cuda:0
+  use_cache: true
+  cache_dir: /home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_lora/cache
+  prompt_empty_drop_keys:
+  - prompt_embeds
+  - pooled_prompt_embeds
+predict:
+  devices:
+    vae: cuda:0
+    text_encoder: cuda:0
+    text_encoder_2: cuda:0
+    dit: cuda:0
+loss:
+  mask_loss: false
+  forground_weight: 2.0
+  background_weight: 1.0
+trainer_type: FluxKontext
+use_cache: true
+cache_dir: /home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_lora/cache
+model_name: lrzjason/flux-kontext-nf4
+lora_adapter_name: lora_edit
+lora_r: 16
+lora_lora_alpha: 16
+target_size:
+- 512
+- 512
+caption_dropout_rate: 0.05
+quantization_type: pretrain_fp16
