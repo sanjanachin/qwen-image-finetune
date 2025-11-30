@@ -444,6 +444,131 @@ On rented cloud GPUs, always backup:
 
 ---
 
+## 📤 Uploading to HuggingFace Hub
+
+After training, you can share your model on HuggingFace Hub for backup or sharing:
+
+### Quick Upload
+
+```python
+from huggingface_hub import HfApi, create_repo
+
+# Configuration
+repo_name = "your-username/easy-circle-flux-lora"
+checkpoint_path = "outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-5-20100"
+
+# Create API client
+api = HfApi()
+
+# Create repository (optional)
+create_repo(repo_name, repo_type="model", exist_ok=True, private=False)
+
+# Upload the trained weights
+api.upload_file(
+    path_or_fileobj=f"{checkpoint_path}/pytorch_lora_weights.safetensors",
+    path_in_repo="pytorch_lora_weights.safetensors",
+    repo_id=repo_name,
+    repo_type="model",
+)
+
+# Upload training config
+api.upload_file(
+    path_or_fileobj="outputs/easy_circle_lora/easy_circle_flux_kontext/v0/train_config.yaml",
+    path_in_repo="train_config.yaml",
+    repo_id=repo_name,
+    repo_type="model",
+)
+
+print(f"✅ Model uploaded to: https://huggingface.co/{repo_name}")
+```
+
+### Authentication
+
+Before uploading, authenticate with HuggingFace:
+
+```bash
+# Login with your HuggingFace token
+huggingface-cli login
+# Or use: hf auth login
+```
+
+Get your token from: https://huggingface.co/settings/tokens
+
+### Upload Multiple Checkpoints
+
+To upload multiple checkpoints for comparison:
+
+```python
+checkpoints = ["checkpoint-5-20100", "checkpoint-5-20000", "checkpoint-5-19900"]
+
+for checkpoint_name in checkpoints:
+    checkpoint_path = f"outputs/easy_circle_lora/easy_circle_flux_kontext/v0/{checkpoint_name}"
+    
+    # Upload weights to subfolder
+    api.upload_file(
+        path_or_fileobj=f"{checkpoint_path}/pytorch_lora_weights.safetensors",
+        path_in_repo=f"{checkpoint_name}/pytorch_lora_weights.safetensors",
+        repo_id=repo_name,
+        repo_type="model",
+    )
+    
+    # Upload state file
+    api.upload_file(
+        path_or_fileobj=f"{checkpoint_path}/state.json",
+        path_in_repo=f"{checkpoint_name}/state.json",
+        repo_id=repo_name,
+        repo_type="model",
+    )
+```
+
+### Create Model Card
+
+Add a README.md to your HuggingFace repo with training details:
+
+```python
+readme_content = """---
+license: apache-2.0
+base_model: lrzjason/flux-kontext-nf4
+tags:
+- flux
+- lora
+- image-editing
+---
+
+# Easy Circle FLUX LoRA
+
+LoRA fine-tuned on FLUX Kontext to add red dots to images.
+
+## Training Details
+- Base Model: lrzjason/flux-kontext-nf4
+- Training Steps: 20,100
+- Epochs: 5.7
+- Batch Size: 2
+- Learning Rate: 0.0001
+- LoRA Rank: 16
+
+## Usage
+```python
+from diffusers import FluxKontextPipeline
+
+pipe = FluxKontextPipeline.from_pretrained("lrzjason/flux-kontext-nf4")
+pipe.load_lora_weights("your-username/easy-circle-flux-lora")
+
+# Generate
+output = pipe(prompt="add red dots", image=input_image)
+```
+"""
+
+api.upload_file(
+    path_or_fileobj=readme_content.encode(),
+    path_in_repo="README.md",
+    repo_id=repo_name,
+    repo_type="model",
+)
+```
+
+---
+
 ## 📚 Next Steps After Training
 
 1. **Evaluate Results**
@@ -451,10 +576,10 @@ On rented cloud GPUs, always backup:
    - Test on held-out test set (data/easy_circle/test/)
    - Visually inspect outputs at different training steps
 
-2. **Share Your Model** (Optional)
-   - Upload to HuggingFace Hub for easy sharing
-   - Add model card with training details
-   - Share results with the community
+2. **Backup Your Model**
+   - Upload best checkpoint to HuggingFace Hub (see above)
+   - Save TensorBoard logs for later analysis
+   - Document training configuration and results
 
 3. **Experiment Further**
    - Try different LoRA ranks (8, 16, 32)
