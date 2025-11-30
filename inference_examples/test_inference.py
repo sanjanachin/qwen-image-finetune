@@ -129,7 +129,7 @@ def test_inference_base_model():
     
     # Save result in inference_examples directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(script_dir, 'inference_output_base_6.png')
+    output_path = os.path.join(script_dir, 'inference_output_base_7.png')
     result[0].save(output_path)
     print(f"\n5. ✅ Success! Result saved to: {output_path}")
     

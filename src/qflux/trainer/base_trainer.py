@@ -425,6 +425,7 @@ class BaseTrainer(ValidationMixin, ABC):
         for batch in tqdm(train_dataloader, total=len(train_dataloader), desc="cache_embeddings"):
             batch = self.prepare_embeddings(batch, stage="cache")
             self.cache_step(batch)
+        
         self.destroy_models()
         logging.info("Cache completed")
 
@@ -514,6 +515,11 @@ class BaseTrainer(ValidationMixin, ABC):
                 # 立刻做一次"last"保存（即使不是 checkpointing_steps 整除）
                 self.save_checkpoint(epoch, self.global_step, is_last=True)
                 return
+            
+            # Check if we've reached max_train_steps
+            if self.global_step >= self.config.train.max_train_steps:
+                logger.info(f"Reached max_train_steps ({self.config.train.max_train_steps}), stopping training")
+                return
 
             with self.accelerator.accumulate(self.dit):
                 # print('self.vae device', self.accelerator.process_index, self.vae.device)
@@ -576,8 +582,13 @@ class BaseTrainer(ValidationMixin, ABC):
             desc="fit",
             disable=(not self.accelerator.is_local_main_process),
         )
-        # if max_train_steps exist, use is None, use num_epochs
-        self.num_epochs = int(self.config.train.max_train_steps / self.batch_size / self.accelerator.num_processes)
+        # Calculate num_epochs based on max_train_steps if both are specified
+        # If only num_epochs is specified in config, use that value
+        if hasattr(self.config.train, 'max_train_steps') and self.config.train.max_train_steps > 0:
+            # Use a high value to ensure we don't stop based on epochs - we'll check max_train_steps in train_epoch
+            self.num_epochs = 1000
+        else:
+            self.num_epochs = self.config.train.num_epochs
 
     def update_progressbar(self, logs: dict):
         assert self.accelerator is not None

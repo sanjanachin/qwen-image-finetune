@@ -149,11 +149,16 @@ class ImageDataset(Dataset):
         self.use_cache = data_config.use_cache
         self.selected_control_indexes = data_config.selected_control_indexes
 
-        if self.use_cache and self.cache_dir:
+        # Always create cache_manager if cache_dir is provided (for hash computation and cache building)
+        # use_cache only controls whether we LOAD existing cache during training
+        if self.cache_dir:
             os.makedirs(self.cache_dir, exist_ok=True)
             self.cache_manager = EmbeddingCacheManager(self.cache_dir)
-            print(f"缓存已启用，缓存目录: {self.cache_dir}")
-            print(f"use_cache: {self.use_cache}")
+            if self.use_cache:
+                print(f"缓存已启用，缓存目录: {self.cache_dir}")
+                print(f"use_cache: {self.use_cache}")
+            else:
+                print(f"缓存管理器已初始化，但不加载现有缓存（use_cache=False）")
         else:
             self.cache_manager = None  # type: ignore
             print("缓存未启用")
@@ -513,10 +518,10 @@ class ImageDataset(Dataset):
                     prompt = f.read().strip()
             else:
                 prompt = data_item["caption"]
-                data["prompt"] = prompt
+            data["prompt"] = prompt  # Always assign prompt to data dict
             if self.cache_manager is not None:
                 file_hashes = self.get_file_hashes(data)
-            data["file_hashes"] = file_hashes
+                data["file_hashes"] = file_hashes
         return data
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
@@ -545,14 +550,22 @@ class ImageDataset(Dataset):
         img_shapes = self._generate_img_shapes(data)
         data["img_shapes"] = img_shapes
 
+        # Only load cache if not in cache building mode (cache_exists means we're using cache for training)
+        # During cache building, we need raw data, not cached data
         if self.use_cache and self.cache_exists:
-            if random.random() < self.data_config.caption_dropout_rate:
-                replace_empty_embeddings = True
-            else:
-                replace_empty_embeddings = False
-            prompt_empty_drop_keys = self.data_config.prompt_empty_drop_keys
-            data = self.cache_manager.load_cache(data, replace_empty_embeddings, prompt_empty_drop_keys)
-            data["cached"] = True
+            try:
+                if random.random() < self.data_config.caption_dropout_rate:
+                    replace_empty_embeddings = True
+                else:
+                    replace_empty_embeddings = False
+                prompt_empty_drop_keys = self.data_config.prompt_empty_drop_keys
+                data = self.cache_manager.load_cache(data, replace_empty_embeddings, prompt_empty_drop_keys)
+                data["cached"] = True
+            except Exception as e:
+                # If cache loading fails (corrupted file), fall back to raw data
+                # This allows cache building to continue even with partial corruption
+                print(f"Warning: Failed to load cache for sample, using raw data: {e}")
+                data["cached"] = False
         if "controls" in data:
             n_controls = len(data["controls"])
             for i in range(n_controls):

@@ -1,141 +1,165 @@
-# Easy Circle Dataset Generator
+# Easy Circle Fine-tuning Guide
 
-This script generates a synthetic dataset for fine-tuning image-to-image models on the task of adding red dots to blank white images.
+This directory contains scripts and configurations for fine-tuning FLUX Kontext to add red dots to blank images.
 
-## Purpose
+## Quick Start
 
-The dataset is designed to test whether fine-tuning can improve a model's ability to:
-- Count accurately (generate the exact number of dots requested)
-- Follow spatial instructions precisely
-- Perform simple compositional tasks
-
-## Dataset Structure
-
-The generated dataset follows the repository's local directory structure format:
-
-```
-data/easy_circle/
-├── train/
-│   ├── control_images/     # Blank white 512x512 images (input)
-│   │   ├── sample_00000.png
-│   │   ├── sample_00001.png
-│   │   └── ...
-│   └── training_images/    # Images with red dots (target) + prompts
-│       ├── sample_00000.png
-│       ├── sample_00000.txt (e.g., "add 5 red dots to the image")
-│       ├── sample_00001.png
-│       ├── sample_00001.txt
-│       └── ...
-├── val/
-│   ├── control_images/
-│   └── training_images/
-└── test/
-    ├── control_images/
-    └── training_images/
-```
-
-## Usage
-
-### Basic Usage
+### 1. Generate Dataset (if not already done)
 
 ```bash
-python scripts/easy_circle/easy_circle_datagen.py \
-    --max_num_dots 40 \
-    --num_samples 1000 \
-    --num_pixels 15 \
-    --overlap
-```
-
-### Command Line Arguments
-
-**Required Arguments:**
-- `--max_num_dots`: Maximum number of dots in any image (range will be 0 to this value)
-- `--num_samples`: Total number of samples to generate (automatically split 70/15/15 into train/val/test)
-- `--num_pixels`: Radius of each dot in pixels
-
-**Optional Arguments:**
-- `--overlap`: Flag to allow dots to overlap (default: False - dots cannot overlap)
-- `--output_dir`: Output directory path (default: `data/easy_circle`)
-- `--seed`: Random seed for reproducibility (default: 42)
-
-### Examples
-
-#### Small dataset for quick testing (with overlapping dots)
-```bash
+cd /home/ubuntu/sanjana-fs/qwen-image-finetune
 python scripts/easy_circle/easy_circle_datagen.py \
     --max_num_dots 20 \
-    --num_samples 100 \
-    --num_pixels 10 \
-    --overlap
-```
-
-#### Medium dataset for actual training (no overlapping)
-```bash
-python scripts/easy_circle/easy_circle_datagen.py \
-    --max_num_dots 40 \
-    --num_samples 1000 \
+    --num_samples 10000 \
     --num_pixels 15
 ```
 
-#### Large dataset with larger dots
+This creates:
+- **7,000 training samples** (data/easy_circle/train/)
+- **1,500 validation samples** (data/easy_circle/val/)
+- **1,500 test samples** (data/easy_circle/test/)
+
+### 2. Run Training
+
 ```bash
-python scripts/easy_circle/easy_circle_datagen.py \
-    --max_num_dots 50 \
-    --num_samples 5000 \
-    --num_pixels 20 \
-    --overlap
+cd scripts/easy_circle
+./train_easy_circle.sh
 ```
 
-## Dataset Specifications
+The script will:
+1. Ask if you want to build cache (recommended: yes)
+2. Start training with validation every 100 steps
+3. Save checkpoints every 200 steps
 
-- **Image Size**: 512x512 pixels
-- **Background**: Pure white RGB(255, 255, 255)
-- **Dot Color**: Pure red RGB(255, 0, 0)
-- **Dot Count Distribution**: Uniform distribution from 0 to max_num_dots
-- **Data Split**: 70% train / 15% val / 15% test
-- **Prompt Format**: `"add {N} red dots to the image"` where N is the actual number of dots
+**Expected Training Time**: 
+- Cache building: ~10-15 minutes
+- Training (3000 steps): ~2-3 hours on A100 40GB
 
-## Assumptions and Implementation Notes
+### 3. Monitor Training
 
-1. **Overlap Handling**: 
-   - When `--overlap` is used, dots can overlap freely
-   - When overlap is disabled, the script attempts up to 1000 placements per dot
-   - If placement fails (canvas too crowded), a warning is printed
+In a separate terminal, launch TensorBoard:
 
-2. **Dot Placement**: 
-   - Dots are placed at uniformly random positions
-   - Dot centers are constrained to be at least `radius` pixels from image edges
-   - This ensures complete dots are visible (no partial dots at boundaries)
+```bash
+tensorboard --logdir=/home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_lora
+```
 
-3. **Reproducibility**: 
-   - Use `--seed` parameter to ensure consistent dataset generation
-   - Default seed is 42
+Then open http://localhost:6006 in your browser to see:
+- Training loss curves
+- Validation images generated every 100 steps
+- Learning rate schedule
 
-4. **File Naming**: 
-   - Samples are named sequentially: `sample_00000`, `sample_00001`, etc.
-   - Each sample has 3 files: control image (.png), target image (.png), and prompt (.txt)
+## Manual Training Steps
 
-## Integration with Training
+If you prefer manual control:
 
-After generating the dataset, you can use it with the training configs by setting:
+### Step 1: Build Cache (Optional but Recommended)
 
+```bash
+cd /home/ubuntu/sanjana-fs/qwen-image-finetune/src
+python -m qflux.main \
+    --config ../configs/easy_circle_flux_kontext.yaml \
+    --cache
+```
+
+### Step 2: Train
+
+```bash
+cd /home/ubuntu/sanjana-fs/qwen-image-finetune/src
+CUDA_VISIBLE_DEVICES=0 accelerate launch \
+    --config_file ../accelerate_config_single_gpu.yaml \
+    -m qflux.main \
+    --config ../configs/easy_circle_flux_kontext.yaml
+```
+
+### Step 3: Resume Training (if interrupted)
+
+Edit `configs/easy_circle_flux_kontext.yaml` and set:
 ```yaml
-data:
-  class_path: "qflux.data.dataset.ImageDataset"
-  init_args:
-    dataset_path:
-      - data/easy_circle/train  # For training
-    # ... other config options
+resume: /home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_lora/checkpoint-XXXX
 ```
 
-For validation/testing, point to `data/easy_circle/val` or `data/easy_circle/test`.
+Then run the training command again.
 
-## Dependencies
+## Output Structure
 
-The script requires:
-- `Pillow` (PIL) - for image generation and drawing
-- `numpy` - for numerical operations
-- `tqdm` - for progress bars
+```
+outputs/easy_circle_lora/
+├── easy_circle_flux_kontext/
+│   ├── checkpoint-200/          # Checkpoint at step 200
+│   │   ├── pytorch_lora_weights.safetensors
+│   │   └── optimizer.bin
+│   ├── checkpoint-400/          # Checkpoint at step 400
+│   ├── ...
+│   └── cache/                   # Embedding cache (if built)
+└── events.out.tfevents.*        # TensorBoard logs
+```
 
-These should already be installed if you have the repository dependencies installed.
+## Inference After Training
 
+Use the trained model:
+
+```python
+from qflux.trainer.flux_kontext_trainer import FluxKontextTrainer
+from qflux.data.config import load_config_from_yaml
+from PIL import Image
+
+# Load config and specify LoRA weights
+config = load_config_from_yaml("configs/easy_circle_flux_kontext.yaml")
+config.model.lora.pretrained_weight = "outputs/easy_circle_lora/checkpoint-3000/pytorch_lora_weights.safetensors"
+
+# Initialize trainer
+trainer = FluxKontextTrainer(config)
+trainer.setup_predict()
+
+# Create blank white image
+blank_image = Image.new('RGB', (512, 512), color=(255, 255, 255))
+
+# Generate image with red dots
+result = trainer.predict(
+    prompt_image=blank_image,
+    prompt="add 10 red dots to the image",
+    num_inference_steps=20,
+    true_cfg_scale=3.5
+)
+
+# Save result
+result[0].save("output_with_dots.png")
+```
+
+## Configuration Details
+
+Key parameters in `configs/easy_circle_flux_kontext.yaml`:
+
+- **LoRA rank**: 16 (good balance of quality and memory)
+- **Batch size**: 2 (optimal for A100 40GB)
+- **Learning rate**: 0.0001 (conservative for quality)
+- **Max steps**: 3000 (~4.3 epochs)
+- **Mixed precision**: bf16 (best quality on A100)
+- **Validation**: Every 100 steps with 4 samples
+- **Checkpoints**: Every 200 steps, keep last 10
+
+## Troubleshooting
+
+### Out of Memory
+- Reduce `batch_size` to 1 in config
+- Ensure `gradient_checkpointing: true`
+
+### Training Too Slow
+- Build cache first with `--cache` flag
+- Ensure cache is being used (check logs)
+
+### Validation Images Not Showing
+- Check TensorBoard is pointing to correct log directory
+- Wait until first validation step (step 100)
+
+### Import Errors
+- Always run commands from `src/` directory
+- Check virtual environment is activated
+
+## Next Steps
+
+After training:
+1. Compare checkpoints using validation metrics
+2. Test on held-out test set
+3. Share model on HuggingFace Hub (optional)
+4. Experiment with different hyperparameters

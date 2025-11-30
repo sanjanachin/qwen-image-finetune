@@ -233,3 +233,6 @@ data/easy_circle/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Training outputs and checkpoints (backed up to HuggingFace separately)
+outputs/

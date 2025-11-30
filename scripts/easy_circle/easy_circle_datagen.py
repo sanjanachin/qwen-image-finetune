@@ -29,7 +29,7 @@ Assumptions:
     - Red color: RGB(255, 0, 0)
     - White background: RGB(255, 255, 255)
     - Train/Val/Test split: 70%/15%/15%
-    - Uniform distribution of dot counts (0 to max_num_dots)
+    - Uniform distribution of dot counts (1 to max_num_dots)
     - Dots are placed with uniform random positions
     - When overlap=False, script attempts placement up to 1000 times per dot
       before giving up (to handle cases where canvas is too full)
@@ -227,7 +227,7 @@ def generate_dataset(
     """Generate the complete dataset.
     
     Args:
-        max_num_dots: Maximum number of dots in any image (0 to max_num_dots)
+        max_num_dots: Maximum number of dots in any image (1 to max_num_dots)
         num_samples: Total number of samples to generate
         num_pixels: Radius of each dot in pixels
         overlap: Whether dots can overlap
@@ -258,7 +258,7 @@ def generate_dataset(
     print(f"  Train: {train_size} ({train_ratio*100:.1f}%)")
     print(f"  Val: {val_size} ({val_ratio*100:.1f}%)")
     print(f"  Test: {test_size} ({test_ratio*100:.1f}%)")
-    print(f"  Dot range: 0 to {max_num_dots}")
+    print(f"  Dot range: 1 to {max_num_dots}")
     print(f"  Dot radius: {num_pixels} pixels")
     print(f"  Overlap allowed: {overlap}")
     print(f"  Random seed: {seed}\n")
@@ -271,7 +271,7 @@ def generate_dataset(
         
         for _ in tqdm(range(split_size), desc=f"  {split}"):
             # Randomly select number of dots (uniform distribution)
-            num_dots = random.randint(0, max_num_dots)
+            num_dots = random.randint(1, max_num_dots)
             
             # Generate the sample
             generate_sample(

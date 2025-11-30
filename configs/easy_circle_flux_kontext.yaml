@@ -1,0 +1,106 @@
+model:
+  pretrained_model_name_or_path: lrzjason/flux-kontext-nf4  # Community NF4 quantized version (no gated access needed)
+  quantize: false  # Model is already pre-quantized
+  lora:
+    r: 16  # LoRA rank - 16 is good balance of quality and memory
+    lora_alpha: 16  # LoRA alpha, usually equal to r
+    init_lora_weights: "gaussian"
+    target_modules: ["to_k", "to_q", "to_v", "to_out.0"]
+    pretrained_weight: null
+    adapter_name: "lora_edit"
+
+data:
+  class_path: qflux.data.dataset.ImageDataset
+  init_args:
+    dataset_path:
+      - /home/ubuntu/sanjana-fs/qwen-image-finetune/data/easy_circle/train
+    caption_dropout_rate: 0.05  # 5% dropout for robustness
+    prompt_image_dropout_rate: 0.05
+    cache_dir: ${cache.cache_dir}
+    use_cache: ${cache.use_cache}
+    processor:
+      class_path: qflux.data.preprocess.ImageProcessor
+      init_args:
+        process_type: center_crop
+        resize_mode: bilinear
+        target_size: [512, 512]  # Match your generated images
+        controls_size: [[512, 512]]
+
+  batch_size: 2  # Good for A100 40GB
+  num_workers: 4  # Utilize your 30 vCPUs
+  shuffle: true
+
+validation:
+  enabled: true
+  steps: 50  # Validate every 50 steps (good for test run)
+  max_samples: 2  # Generate 2 validation samples (faster)
+  seed: 42
+  dataset:
+    class_path: qflux.data.dataset.ImageDataset
+    init_args:
+      dataset_path:
+        - /home/ubuntu/sanjana-fs/qwen-image-finetune/data/easy_circle/val
+      caption_dropout_rate: 0.0
+      prompt_image_dropout_rate: 0.0
+      processor:
+        class_path: qflux.data.preprocess.ImageProcessor
+        init_args:
+          process_type: center_crop
+          resize_mode: bilinear
+          target_size: [512, 512]
+          controls_size: [[512, 512]]
+
+logging:
+  output_dir: /home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_lora
+  report_to: tensorboard
+  tracker_project_name: easy_circle_flux_kontext
+  tags:
+    - easy_circle
+    - flux_kontext
+    - red_dots
+  notes: "Fine-tuning FLUX Kontext to add red dots to blank images"
+
+optimizer:
+  class_path: bitsandbytes.optim.Adam8bit  # Memory-efficient optimizer
+  init_args:
+    lr: 0.0001  # Conservative learning rate for quality
+    betas: [0.9, 0.999]
+
+lr_scheduler:
+  scheduler_type: "cosine"  # Smooth learning rate decay
+  warmup_steps: 100  # Gradual warmup
+  num_cycles: 0.5
+  power: 1.0
+
+train:
+  gradient_accumulation_steps: 1
+  max_train_steps: 300  # TEST RUN: ~30 minutes (change to 10500 for full 3 epochs)
+  # num_epochs: 3  # FULL TRAINING: Uncomment this and remove max_train_steps for 3 full epochs
+  checkpointing_steps: 100  # Save every 100 steps for testing
+  checkpoints_total_limit: 5  # Keep last 5 checkpoints
+  max_grad_norm: 1.0
+  mixed_precision: "bf16"  # Best quality on A100
+  gradient_checkpointing: true  # Enable to save memory
+  low_memory: true
+
+trainer: FluxKontext
+resume: null
+
+cache:
+  devices:
+    vae: cuda:0
+    text_encoder: cuda:0
+    text_encoder_2: cuda:0
+  cache_dir: ${logging.output_dir}/cache
+  use_cache: true
+  prompt_empty_drop_keys:
+    - prompt_embeds
+    - pooled_prompt_embeds
+
+predict:
+  devices:
+    vae: cuda:0
+    text_encoder: cuda:0
+    text_encoder_2: cuda:0
+    dit: cuda:0
+

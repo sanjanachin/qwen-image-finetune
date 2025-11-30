@@ -68,10 +68,13 @@ def main():
         batch_size = 1
         shuffle = False
         droplast = False
+        # Disable cache loading during cache building to avoid loading incomplete/corrupted cache
+        config.data.init_args.use_cache = False
         logging.info("In cache mode, adjust batch_size, shuffle, droplast")
         logging.info("\tbatch_size {batch_size}")
         logging.info(f"\tshuffle {shuffle}")
         logging.info(f"\tdroplast {droplast}")
+        logging.info(f"\tuse_cache disabled during cache building")
     train_dataloader = loader(
         config.data.class_path,
         config.data.init_args,
