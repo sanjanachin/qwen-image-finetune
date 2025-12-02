@@ -17,8 +17,10 @@ Usage:
 import argparse
 import sys
 import os
+import json
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
+from datetime import datetime
 import re
 
 import numpy as np
@@ -366,6 +368,19 @@ def main():
         help="Minimum confidence score for SAM3 detections (default: 0.3)"
     )
     
+    parser.add_argument(
+        "--save_results",
+        action="store_true",
+        help="Save all generated images and prompts (default: False)"
+    )
+    
+    parser.add_argument(
+        "--results_dir",
+        type=str,
+        default=None,
+        help="Directory to save results (default: auto-generated in checkpoint dir)"
+    )
+    
     args = parser.parse_args()
     
     # Validate paths
@@ -405,6 +420,19 @@ def main():
     sam3_processor = initialize_sam3(args.sam3_device, confidence_threshold=args.sam3_score_threshold)
     print()
     
+    # Setup results directory if saving
+    results_dir = None
+    if args.save_results:
+        if args.results_dir:
+            results_dir = Path(args.results_dir)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_dir = checkpoint_path / f"eval_results_{timestamp}"
+        
+        results_dir.mkdir(parents=True, exist_ok=True)
+        print(f"💾 Results will be saved to: {results_dir}")
+        print()
+    
     # Process base model first (to manage memory)
     print("Step 3: Evaluating BASE model...")
     print("Initializing base model...")
@@ -417,8 +445,9 @@ def main():
     
     base_requested = []
     base_detected = []
+    base_outputs = []  # Store outputs for saving later
     
-    for control_img, prompt, requested_count in tqdm(test_samples, desc="Base model inference"):
+    for idx, (control_img, prompt, requested_count) in enumerate(tqdm(test_samples, desc="Base model inference")):
         base_output = run_inference(
             trainer_base, 
             control_img, 
@@ -434,6 +463,17 @@ def main():
         )
         base_requested.append(requested_count)
         base_detected.append(base_count)
+        
+        # Store for later saving if needed
+        if args.save_results:
+            base_outputs.append({
+                'idx': idx,
+                'control_img': control_img,
+                'prompt': prompt,
+                'requested_count': requested_count,
+                'generated_img': base_output,
+                'detected_count': base_count
+            })
     
     # Clean up base model to free memory
     print("\n🧹 Cleaning up base model...")
@@ -457,7 +497,7 @@ def main():
     ft_requested = []
     ft_detected = []
     
-    for control_img, prompt, requested_count in tqdm(test_samples, desc="Fine-tuned model inference"):
+    for idx, (control_img, prompt, requested_count) in enumerate(tqdm(test_samples, desc="Fine-tuned model inference")):
         ft_output = run_inference(
             trainer_ft,
             control_img,
@@ -473,6 +513,40 @@ def main():
         )
         ft_requested.append(requested_count)
         ft_detected.append(ft_count)
+        
+        # Save results if enabled
+        if args.save_results:
+            sample_dir = results_dir / f"sample_{idx:05d}"
+            sample_dir.mkdir(exist_ok=True)
+            
+            # Get corresponding base model data
+            base_data = base_outputs[idx]
+            
+            # Save prompt
+            with open(sample_dir / "prompt.txt", 'w') as f:
+                f.write(prompt)
+            
+            # Save metadata
+            metadata = {
+                'idx': idx,
+                'prompt': prompt,
+                'requested_count': requested_count,
+                'base_model': {
+                    'detected_count': base_data['detected_count'],
+                    'error': abs(requested_count - base_data['detected_count'])
+                },
+                'finetuned_model': {
+                    'detected_count': ft_count,
+                    'error': abs(requested_count - ft_count)
+                }
+            }
+            with open(sample_dir / "metadata.json", 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            # Save images
+            control_img.save(sample_dir / "control_image.png")
+            base_data['generated_img'].save(sample_dir / "base_model_output.png")
+            ft_output.save(sample_dir / "finetuned_model_output.png")
     
     print("\n✅ Fine-tuned model evaluation complete")
     print()
@@ -485,6 +559,48 @@ def main():
     
     # Print report
     print_report(base_metrics, ft_metrics, len(test_samples))
+    
+    # Save summary if results were saved
+    if args.save_results:
+        print(f"\n💾 All results saved to: {results_dir}")
+        print(f"   - {len(test_samples)} samples saved")
+        print(f"   - Each sample includes: control image, base output, fine-tuned output, prompt, and metadata")
+        
+        # Create an index file for easy browsing
+        index_data = {
+            'num_samples': len(test_samples),
+            'checkpoint': str(checkpoint_path),
+            'test_dataset': args.test_dataset,
+            'num_inference_steps': args.num_inference_steps,
+            'cfg_scale': args.cfg_scale,
+            'sam3_score_threshold': args.sam3_score_threshold,
+            'base_metrics': {
+                'accuracy': float(base_metrics['accuracy']),
+                'mae': float(base_metrics['mae']),
+                'medae': float(base_metrics['medae'])
+            },
+            'finetuned_metrics': {
+                'accuracy': float(ft_metrics['accuracy']),
+                'mae': float(ft_metrics['mae']),
+                'medae': float(ft_metrics['medae'])
+            },
+            'samples': [
+                {
+                    'sample_id': f"sample_{i:05d}",
+                    'requested': base_requested[i],
+                    'base_detected': base_detected[i],
+                    'finetuned_detected': ft_detected[i],
+                    'base_error': abs(base_requested[i] - base_detected[i]),
+                    'finetuned_error': abs(ft_requested[i] - ft_detected[i])
+                }
+                for i in range(len(test_samples))
+            ]
+        }
+        
+        with open(results_dir / "index.json", 'w') as f:
+            json.dump(index_data, f, indent=2)
+        
+        print(f"   - Index file created: {results_dir / 'index.json'}")
 
 
 if __name__ == "__main__":
