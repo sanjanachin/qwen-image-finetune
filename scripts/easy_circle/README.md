@@ -594,6 +594,83 @@ api.upload_file(
 
 ---
 
+## 📊 Evaluation
+
+After training, evaluate counting accuracy on the test set:
+
+### Running the Evaluation
+
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-5-17500 \
+    --num_samples 1500
+```
+
+**Options:**
+- `--checkpoint`: Path to trained checkpoint directory (required)
+- `--test_dataset`: Path to test dataset (default: data/easy_circle/test)
+- `--num_samples`: Number of samples to evaluate (default: all 1,500)
+- `--num_inference_steps`: Diffusion steps (default: 20)
+- `--cfg_scale`: Guidance scale (default: 3.5)
+- `--sam3_device`: Device for SAM3 model (default: cuda:0)
+- `--sam3_score_threshold`: Minimum confidence score for detections (default: 0.3)
+
+### What It Does
+
+The evaluation script:
+1. Loads the test dataset (1,500 held-out samples)
+2. Initializes SAM3 (Segment Anything Model 3) for dot detection
+3. Runs inference with both base model and fine-tuned model
+4. Counts dots in generated images using SAM3 text-prompted segmentation
+5. Calculates three metrics:
+   - **Accuracy**: % of exact count matches
+   - **Mean Absolute Error (MAE)**: Average counting error
+   - **Median Absolute Error (MedAE)**: Median counting error
+6. Compares base vs. fine-tuned performance
+
+### Example Output
+
+```
+Easy Circle Counting Evaluation (Test Set: 1,500 images)
+
+Metric                          Base Model    Fine-tuned    Δ
+────────────────────────────────────────────────────────────
+Accuracy (exact match)          12.3%         78.4%         +66.1 pp
+Mean Absolute Error             5.2 dots      0.8 dots      -4.4 dots  
+Median Absolute Error           4.0 dots      0.0 dots      -4.0 dots
+
+Summary:
+Fine-tuning improved exact counting accuracy from 12.3% to 78.4%, 
+reducing average error from 5.2 to 0.8 dots.
+```
+
+### Quick Evaluation (100 samples)
+
+For faster iteration during development:
+
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-5-17500 \
+    --num_samples 100
+```
+
+### Dot Detection with SAM3
+
+The evaluation uses [SAM3 (Segment Anything Model 3)](https://github.com/facebookresearch/sam3) for counting dots:
+
+- **Text-prompted segmentation**: Uses "red dots" prompt to detect objects
+- **No manual thresholding**: SAM3 understands semantic concepts without color space conversions
+- **Confidence filtering**: Only counts detections above `sam3_score_threshold` (default: 0.3)
+- **State-of-the-art accuracy**: SAM3 achieves high precision on instance segmentation tasks
+
+**Why SAM3?**
+- Superior to traditional OpenCV color thresholding
+- Robust to lighting variations and overlapping dots
+- Can distinguish individual dots even when clustered
+- Leverages latest vision-language model capabilities
+
+---
+
 ## 📖 Additional Resources
 
 - **Project Repository**: https://github.com/sanjanachin/qwen-image-finetune

@@ -27,6 +27,11 @@ echo ""
 echo "Installing diffusers from GitHub..."
 pip install --upgrade "git+https://github.com/huggingface/diffusers.git"
 
+# Install SAM3 from GitHub
+echo ""
+echo "Installing SAM3 from GitHub..."
+pip install "git+https://github.com/facebookresearch/sam3.git"
+
 # Install other dependencies
 echo ""
 echo "Installing other dependencies..."
