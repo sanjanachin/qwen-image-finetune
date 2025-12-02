@@ -148,9 +148,39 @@ def extract_requested_count(prompt: str) -> int:
         raise ValueError(f"Could not parse count from prompt: {prompt}")
 
 
+def generate_balanced_test_dataset(samples_per_count: int = 10) -> List[Tuple[Image.Image, str, int]]:
+    """
+    Generate a balanced test dataset with equal samples for each dot count.
+    
+    Creates samples_per_count prompts for each count from 1 to 20,
+    all using blank white 512x512 images as control.
+    
+    Args:
+        samples_per_count: Number of samples per dot count (default: 10)
+        
+    Returns:
+        List of (control_image, prompt, requested_count) tuples
+    """
+    samples = []
+    
+    print(f"Generating balanced test dataset ({samples_per_count} samples per count)...")
+    
+    # Create one blank white image that all prompts will share
+    blank_image = Image.new('RGB', (512, 512), color=(255, 255, 255))
+    
+    # Generate prompts for counts 1-20
+    for count in range(1, 21):
+        for sample_idx in range(samples_per_count):
+            prompt = f"add {count} red dots to the image"
+            samples.append((blank_image.copy(), prompt, count))
+    
+    print(f"✅ Generated {len(samples)} balanced test samples (counts 1-20)")
+    return samples
+
+
 def load_test_dataset(dataset_path: Path, num_samples: int = None) -> List[Tuple[Image.Image, str, int]]:
     """
-    Load test dataset samples.
+    Load test dataset samples from disk.
     
     Args:
         dataset_path: Path to test dataset directory (e.g., data/easy_circle/test)
@@ -381,6 +411,19 @@ def main():
         help="Directory to save results (default: auto-generated in checkpoint dir)"
     )
     
+    parser.add_argument(
+        "--balanced_test",
+        action="store_true",
+        help="Use balanced test dataset (10 samples per count 1-20) instead of test split"
+    )
+    
+    parser.add_argument(
+        "--samples_per_count",
+        type=int,
+        default=10,
+        help="Number of samples per count for balanced test (default: 10)"
+    )
+    
     args = parser.parse_args()
     
     # Validate paths
@@ -394,25 +437,37 @@ def main():
         print(f"❌ Error: LoRA weights not found at {lora_weights}")
         sys.exit(1)
     
-    test_dataset_path = Path(args.test_dataset)
-    if not test_dataset_path.exists():
-        print(f"❌ Error: Test dataset not found at {test_dataset_path}")
-        sys.exit(1)
+    # Only validate test dataset path if not using balanced test
+    if not args.balanced_test:
+        test_dataset_path = Path(args.test_dataset)
+        if not test_dataset_path.exists():
+            print(f"❌ Error: Test dataset not found at {test_dataset_path}")
+            sys.exit(1)
+    else:
+        test_dataset_path = None
     
     print("=" * 80)
     print("Easy Circle Counting Evaluation: Base vs Fine-tuned")
     print("=" * 80)
     print(f"Fine-tuned checkpoint: {checkpoint_path}")
-    print(f"Test dataset: {test_dataset_path}")
+    if args.balanced_test:
+        print(f"Test mode: BALANCED ({args.samples_per_count} samples per count, 1-20)")
+    else:
+        print(f"Test dataset: {test_dataset_path}")
+        if args.num_samples:
+            print(f"Number of samples: {args.num_samples}")
     print(f"Inference steps: {args.num_inference_steps}")
     print(f"CFG scale: {args.cfg_scale}")
     print("=" * 80)
     print()
     
-    # Load test dataset
-    print("Step 1: Loading test dataset...")
-    test_samples = load_test_dataset(test_dataset_path, args.num_samples)
-    print(f"✅ Loaded {len(test_samples)} test samples")
+    # Load or generate test dataset
+    print("Step 1: Preparing test dataset...")
+    if args.balanced_test:
+        test_samples = generate_balanced_test_dataset(args.samples_per_count)
+    else:
+        test_samples = load_test_dataset(test_dataset_path, args.num_samples)
+        print(f"✅ Loaded {len(test_samples)} test samples")
     print()
     
     # Initialize SAM3 for dot detection
@@ -427,7 +482,9 @@ def main():
             results_dir = Path(args.results_dir)
         else:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            results_dir = checkpoint_path / f"eval_results_{timestamp}"
+            # Add prefix to distinguish balanced vs regular tests
+            prefix = "eval_balanced_" if args.balanced_test else "eval_results_"
+            results_dir = checkpoint_path / f"{prefix}{timestamp}"
         
         results_dir.mkdir(parents=True, exist_ok=True)
         print(f"💾 Results will be saved to: {results_dir}")
@@ -570,7 +627,9 @@ def main():
         index_data = {
             'num_samples': len(test_samples),
             'checkpoint': str(checkpoint_path),
-            'test_dataset': args.test_dataset,
+            'test_mode': 'balanced' if args.balanced_test else 'regular',
+            'test_dataset': None if args.balanced_test else args.test_dataset,
+            'samples_per_count': args.samples_per_count if args.balanced_test else None,
             'num_inference_steps': args.num_inference_steps,
             'cfg_scale': args.cfg_scale,
             'sam3_score_threshold': args.sam3_score_threshold,

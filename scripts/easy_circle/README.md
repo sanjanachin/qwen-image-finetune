@@ -327,6 +327,212 @@ output[0].save("result.png")
 
 ---
 
+## 📊 Evaluation
+
+After training, evaluate your model's counting accuracy using the `eval_counting.py` script. This compares the base model (no fine-tuning) against your fine-tuned checkpoint.
+
+### Quick Start
+
+**Basic evaluation** (100 samples from test set):
+```bash
+cd /home/ubuntu/sanjana-fs/qwen-image-finetune
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-4-17500 \
+    --num_samples 100
+```
+
+**Full test set** (all 1,500 samples):
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-4-17500
+```
+
+### Evaluation Modes
+
+#### 1. Regular Test Mode (Default)
+
+Uses your held-out test dataset (`data/easy_circle/test/`):
+
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-4-17500 \
+    --num_samples 100
+```
+
+- **Pros**: Tests on real data distribution, uses actual held-out samples
+- **Cons**: Distribution may be uneven across different dot counts
+
+#### 2. Balanced Test Mode
+
+Generates a systematic test set with equal representation:
+
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-4-17500 \
+    --balanced_test
+```
+
+**What it does**:
+- Creates 10 prompts for each count from 1 to 20 (200 total samples)
+- All use blank white 512×512 images
+- Prompts: "add 1 red dots to the image", "add 2 red dots to the image", etc.
+
+**Customize samples per count**:
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-4-17500 \
+    --balanced_test \
+    --samples_per_count 20  # 20 × 20 = 400 total samples
+```
+
+- **Pros**: Equal representation, easy to plot accuracy vs. count, reproducible
+- **Cons**: Not testing on actual data distribution
+
+### Saving Results
+
+Add `--save_results` to save all generated images and metadata:
+
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/easy_circle_flux_kontext/v0/checkpoint-4-17500 \
+    --balanced_test \
+    --save_results
+```
+
+**Output structure**:
+```
+checkpoint-4-17500/
+└── eval_balanced_20251202_143022/  # Timestamped, won't overwrite
+    ├── index.json                   # Summary of all results
+    ├── sample_00000/
+    │   ├── control_image.png        # Blank white input
+    │   ├── base_model_output.png    # Base model generation
+    │   ├── finetuned_model_output.png # Fine-tuned generation
+    │   ├── prompt.txt               # "add 5 red dots to the image"
+    │   └── metadata.json            # Counts & errors
+    ├── sample_00001/
+    └── ...
+```
+
+**Saved metadata** (`sample_00000/metadata.json`):
+```json
+{
+  "idx": 0,
+  "prompt": "add 5 red dots to the image",
+  "requested_count": 5,
+  "base_model": {
+    "detected_count": 3,
+    "error": 2
+  },
+  "finetuned_model": {
+    "detected_count": 5,
+    "error": 0
+  }
+}
+```
+
+**Index file** (`index.json`):
+- Evaluation configuration and metrics
+- List of all samples with counts and errors
+- Easy to parse for analysis scripts
+
+### Evaluation Output
+
+The script prints a comparison table:
+
+```
+================================================================================
+Easy Circle Counting Evaluation (Test Set: 200 images)
+
+Metric                          Base Model    Fine-tuned    Δ
+────────────────────────────────────────────────────────────────────────────
+Accuracy (exact match)          12.5%         78.0%         +65.5 pp
+Mean Absolute Error             5.2 dots      0.8 dots      -4.4 dots  
+Median Absolute Error           4.0 dots      0.0 dots      -4.0 dots
+================================================================================
+
+Summary:
+Fine-tuning improved exact counting accuracy from 12.5% to 78.0%, 
+reducing average error from 5.2 to 0.8 dots.
+```
+
+### Evaluation Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--checkpoint` | Path to trained checkpoint (required) | - |
+| `--test_dataset` | Path to test dataset | `data/easy_circle/test` |
+| `--num_samples` | Number of samples to evaluate | All |
+| `--balanced_test` | Use balanced test (10 per count 1-20) | False |
+| `--samples_per_count` | Samples per count for balanced test | 10 |
+| `--save_results` | Save all images and metadata | False |
+| `--results_dir` | Custom results directory | Auto-generated |
+| `--num_inference_steps` | Diffusion steps | 20 |
+| `--cfg_scale` | Guidance scale | 3.5 |
+| `--sam3_score_threshold` | SAM3 confidence threshold | 0.3 |
+| `--sam3_device` | Device for SAM3 model | `cuda:0` |
+
+### Evaluation Tips
+
+**1. Start with balanced test**
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/.../checkpoint-4-17500 \
+    --balanced_test \
+    --save_results
+```
+This gives you a clear picture of performance across all counts (1-20).
+
+**2. Then test on real data**
+```bash
+python scripts/easy_circle/eval_counting.py \
+    --checkpoint outputs/easy_circle_lora/.../checkpoint-4-17500 \
+    --num_samples 1500 \
+    --save_results
+```
+This validates performance on the actual test distribution.
+
+**3. Compare checkpoints**
+
+Run evaluation on multiple checkpoints to find the best one:
+```bash
+# Test different training steps
+for ckpt in checkpoint-4-17000 checkpoint-4-17500 checkpoint-4-18000; do
+    python scripts/easy_circle/eval_counting.py \
+        --checkpoint outputs/easy_circle_lora/.../v0/$ckpt \
+        --balanced_test
+done
+```
+
+**4. Analyze saved results**
+
+Use the saved images to:
+- Create paper figures showing base vs. fine-tuned
+- Debug failure cases (where counting is wrong)
+- Visualize model improvements
+- Understand which counts are hardest
+
+### Time Estimates
+
+- **100 samples**: ~15 minutes (base + fine-tuned)
+- **200 samples** (balanced): ~30 minutes
+- **1,500 samples** (full test): ~3-4 hours
+
+### Directory Organization
+
+Multiple eval runs won't overwrite each other:
+```
+checkpoint-4-17500/
+├── eval_results_20251202_083345/    # Regular test, run 1
+├── eval_results_20251202_103522/    # Regular test, run 2
+├── eval_balanced_20251202_143022/   # Balanced test, run 1
+└── eval_balanced_20251202_153011/   # Balanced test, run 2
+```
+
+Each run gets a unique timestamped directory!
+
+---
+
 ## 🔧 Troubleshooting
 
 ### Out of Memory Errors
@@ -572,9 +778,10 @@ api.upload_file(
 ## 📚 Next Steps After Training
 
 1. **Evaluate Results**
-   - Compare checkpoints using validation metrics
-   - Test on held-out test set (data/easy_circle/test/)
-   - Visually inspect outputs at different training steps
+   - Run systematic evaluation (see [📊 Evaluation](#-evaluation) section above)
+   - Compare base model vs. fine-tuned with `eval_counting.py`
+   - Use `--balanced_test` for clean accuracy-vs-count plots
+   - Save results with `--save_results` for visual inspection
 
 2. **Backup Your Model**
    - Upload best checkpoint to HuggingFace Hub (see above)
