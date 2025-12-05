@@ -35,7 +35,7 @@ pip install "git+https://github.com/facebookresearch/sam3.git"
 # Install other dependencies
 echo ""
 echo "Installing other dependencies..."
-pip install python-dotenv transformers==4.52.4 pyyaml oyaml tensorboardX einops accelerate pydantic omegaconf tqdm huggingface_hub opencv-python matplotlib==3.10.1 setuptools==69.5.1 peft tabulate psutil ipykernel optimum-quanto bitsandbytes packaging ninja wheel sentencepiece datasets prodigyopt blake3 pillow rich wandb swanlab ImageHash
+pip install python-dotenv transformers==4.52.4 pyyaml oyaml tensorboardX einops accelerate pydantic omegaconf tqdm huggingface_hub opencv-python matplotlib==3.10.1 setuptools==69.5.1 peft tabulate psutil ipykernel optimum-quanto bitsandbytes packaging ninja wheel sentencepiece datasets prodigyopt blake3 pillow rich wandb swanlab ImageHash fal-client
 
 # Prompt for HuggingFace token
 echo ""

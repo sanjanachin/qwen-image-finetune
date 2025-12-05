@@ -31,6 +31,10 @@ def import_trainer(config: Config):
         from qflux.trainer.dreamomni2_trainer import DreamOmni2Trainer
 
         return DreamOmni2Trainer
+    elif trainer_type == "GRPOFluxKontext":
+        from qflux.trainer.grpo_flux_kontext_trainer import GRPOFluxKontextTrainer
+
+        return GRPOFluxKontextTrainer
     else:
         raise ValueError(f"Invalid trainer type: {trainer_type}")
 

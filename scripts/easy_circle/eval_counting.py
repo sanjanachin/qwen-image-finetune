@@ -81,7 +81,7 @@ def initialize_sam3(device: str = "cuda:0", confidence_threshold: float = 0.3) -
 def count_dots(
     image: Image.Image,
     processor: Sam3Processor,
-    prompt: str = "red dots",
+    prompt: str = "red dot",
     sam3_device: str = "cuda:0"
 ) -> int:
     """
@@ -93,7 +93,7 @@ def count_dots(
     Args:
         image: PIL Image to analyze
         processor: Initialized SAM3 processor (with confidence_threshold already set)
-        prompt: Text prompt for detection (default: "red dots")
+        prompt: Text prompt for detection (default: "red dot")
         sam3_device: Device SAM3 is on (not used, for API compatibility)
         
     Returns:
@@ -515,7 +515,7 @@ def main():
         base_count = count_dots(
             base_output, 
             sam3_processor,
-            prompt="red dots",
+            prompt="red dot",
             sam3_device=args.sam3_device
         )
         base_requested.append(requested_count)
@@ -565,7 +565,7 @@ def main():
         ft_count = count_dots(
             ft_output,
             sam3_processor,
-            prompt="red dots",
+            prompt="red dot",
             sam3_device=args.sam3_device
         )
         ft_requested.append(requested_count)

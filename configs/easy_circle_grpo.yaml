@@ -1,0 +1,126 @@
+# GRPO Training Configuration for Easy Circle Counting Task
+# 
+# This config trains FLUX Kontext using GRPO (Group Relative Policy Optimization)
+# to improve counting accuracy. Instead of pixel-level MSE loss, it uses
+# reinforcement learning with SAM3-based counting as the reward function.
+#
+# Experiment 1: Train fresh LoRA from base model
+
+model:
+  pretrained_model_name_or_path: lrzjason/flux-kontext-nf4  # Same base model as SFT
+  quantize: false  # Model is already pre-quantized
+  lora:
+    r: 16  # Same LoRA rank as SFT for fair comparison
+    lora_alpha: 16
+    init_lora_weights: "gaussian"
+    target_modules: ["to_k", "to_q", "to_v", "to_out.0"]
+    pretrained_weight: null  # Fresh LoRA weights (Experiment 1)
+    adapter_name: "lora_grpo"
+
+# GRPO-specific configuration
+grpo:
+  k_samples: 4  # Number of samples per prompt
+  prompts_per_step: 1  # Number of prompts per training step (reduced for memory)
+  kl_beta: 0.01  # KL penalty coefficient
+  exact_match_bonus: 2.0  # Bonus for exact count match
+  sam3_path: /home/ubuntu/sanjana-fs/sam3
+  sam3_confidence_threshold: 0.3
+  use_sam3_api: true  # Use fal.ai API for SAM3 (saves GPU memory, requires FAL_KEY env var)
+  sam3_api_max_masks: 30  # Max masks to return from API
+
+data:
+  class_path: qflux.data.dataset.ImageDataset
+  init_args:
+    dataset_path:
+      - /home/ubuntu/sanjana-fs/qwen-image-finetune/data/easy_circle/train
+    caption_dropout_rate: 0.0  # No dropout for GRPO - we need consistent prompts
+    prompt_image_dropout_rate: 0.0
+    cache_dir: null  # GRPO doesn't use cache (needs raw images)
+    use_cache: false  # Must be false for GRPO
+    processor:
+      class_path: qflux.data.preprocess.ImageProcessor
+      init_args:
+        process_type: center_crop
+        resize_mode: bilinear
+        target_size: [512, 512]
+        controls_size: [[512, 512]]
+
+  batch_size: 2  # Will sample k_samples * prompts_per_step images per step
+  num_workers: 4
+  shuffle: true
+
+validation:
+  enabled: true
+  steps: 50  # Validate every 50 steps (same as SFT)
+  max_samples: 10  # 10 validation samples (reduced from 20)
+  seed: 42
+  dataset:
+    class_path: qflux.data.dataset.ImageDataset
+    init_args:
+      dataset_path:
+        - /home/ubuntu/sanjana-fs/qwen-image-finetune/data/easy_circle/val
+      caption_dropout_rate: 0.0
+      prompt_image_dropout_rate: 0.0
+      processor:
+        class_path: qflux.data.preprocess.ImageProcessor
+        init_args:
+          process_type: center_crop
+          resize_mode: bilinear
+          target_size: [512, 512]
+          controls_size: [[512, 512]]
+
+logging:
+  output_dir: /home/ubuntu/sanjana-fs/qwen-image-finetune/outputs/easy_circle_grpo
+  report_to: tensorboard
+  tracker_project_name: easy_circle_grpo
+  tags:
+    - easy_circle
+    - grpo
+    - counting
+    - flux_kontext
+  notes: "GRPO training for counting accuracy improvement (Experiment 1: fresh LoRA)"
+
+optimizer:
+  class_path: bitsandbytes.optim.Adam8bit
+  init_args:
+    lr: 0.00001  # 1e-5, smaller than SFT (1e-4) for RL stability
+    betas: [0.9, 0.999]
+
+lr_scheduler:
+  scheduler_type: "cosine"
+  warmup_steps: 50  # Shorter warmup than SFT
+  num_cycles: 0.5
+  power: 1.0
+
+train:
+  gradient_accumulation_steps: 1
+  max_train_steps: 2000  # Test run: 2000 steps
+  # num_epochs: 10  # Uncomment for full training
+  checkpointing_steps: 200  # Save every 200 steps
+  checkpoints_total_limit: 5
+  max_grad_norm: 1.0
+  mixed_precision: "bf16"
+  gradient_checkpointing: true
+  low_memory: true
+
+trainer: GRPOFluxKontext
+resume: null
+
+cache:
+  devices:
+    vae: cuda:0
+    text_encoder: cuda:0
+    text_encoder_2: cuda:0
+  cache_dir: ${logging.output_dir}/cache
+  use_cache: false  # GRPO doesn't use cache
+  prompt_empty_drop_keys:
+    - prompt_embeds
+    - pooled_prompt_embeds
+
+predict:
+  devices:
+    vae: cuda:0
+    text_encoder: cuda:0
+    text_encoder_2: cuda:0
+    dit: cuda:0
+

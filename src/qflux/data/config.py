@@ -600,6 +600,7 @@ class TrainerKind(str, Enum):
     QwenImageEditPlus = "QwenImageEditPlus"
     FluxKontext = "FluxKontext"
     DreamOmni2 = "DreamOmni2"
+    GRPOFluxKontext = "GRPOFluxKontext"
 
 
 class TrainConfig(BaseModel):
@@ -666,16 +667,57 @@ class LossConfig(BaseModel):
 
     @field_validator("forground_weight", "background_weight")
     @classmethod
-    def _non_negative(cls, v: float) -> float:
+    def _loss_non_negative(cls, v: float) -> float:
         if v < 0:
             raise ValueError("weight must be >= 0")
         return v
 
     @field_validator("class_path")
     @classmethod
-    def _check_class_path(cls, v: str | None) -> str | None:
+    def _loss_check_class_path(cls, v: str | None) -> str | None:
         if v is not None and not v:
             raise ValueError("class_path must be non-empty if provided")
+        return v
+
+
+class GRPOConfig(BaseModel):
+    """GRPO (Group Relative Policy Optimization) configuration."""
+    model_config = ConfigDict(extra="forbid")
+    k_samples: int = 4  # Number of samples per prompt
+    prompts_per_step: int = 2  # Number of prompts per training step
+    kl_beta: float = 0.01  # KL penalty coefficient
+    exact_match_bonus: float = 2.0  # Bonus for exact count match
+    sam3_path: str = "/home/ubuntu/sanjana-fs/sam3"
+    sam3_confidence_threshold: float = 0.3
+    use_sam3_api: bool = False  # If True, use fal.ai API for SAM3 instead of local
+    sam3_api_max_masks: int = 30  # Max masks to return from API
+
+    @field_validator("k_samples", "prompts_per_step")
+    @classmethod
+    def _grpo_pos_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("must be a positive integer")
+        return v
+
+    @field_validator("kl_beta")
+    @classmethod
+    def _check_kl_beta(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("kl_beta must be >= 0")
+        return v
+
+    @field_validator("exact_match_bonus")
+    @classmethod
+    def _check_exact_match_bonus(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("exact_match_bonus must be >= 0")
+        return v
+
+    @field_validator("sam3_confidence_threshold")
+    @classmethod
+    def _check_sam3_threshold(cls, v: float) -> float:
+        if v < 0 or v > 1:
+            raise ValueError("sam3_confidence_threshold must be between 0 and 1")
         return v
 
 
@@ -755,6 +797,7 @@ class Config(BaseModel):
     cache: CacheConfig = Field(default_factory=CacheConfig)
     predict: PredictConfig = Field(default_factory=PredictConfig)
     loss: LossConfig = Field(default_factory=LossConfig)
+    grpo: GRPOConfig | None = None  # GRPO configuration (optional, only for GRPOFluxKontext trainer)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
