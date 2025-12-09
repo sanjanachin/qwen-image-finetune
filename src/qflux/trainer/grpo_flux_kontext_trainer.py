@@ -313,17 +313,16 @@ class GRPOFluxKontextTrainer(FluxKontextLoraTrainer):
         advantages = (rewards_array - mean_reward) / std_reward
         return advantages.tolist()
 
-    def sample_with_gradients(
+    def sample_without_gradients(
         self,
         control_image: torch.Tensor,
         prompt: str,
         num_inference_steps: int = 20,
-    ) -> tuple[Image.Image, list[torch.Tensor]]:
+    ) -> tuple[Image.Image, torch.Tensor, dict]:
         """
-        Generate an image while tracking gradients through the diffusion process.
+        Generate an image WITHOUT tracking gradients (memory efficient).
         
-        This is the key method for policy gradient - we need to be able to
-        backpropagate through the sampling process.
+        Returns the final latent and all info needed for single-step gradient computation.
         
         Args:
             control_image: Control image tensor [1, C, H, W] normalized to [-1, 1]
@@ -331,123 +330,169 @@ class GRPOFluxKontextTrainer(FluxKontextLoraTrainer):
             num_inference_steps: Number of diffusion steps
             
         Returns:
-            Tuple of (generated PIL image, list of noise predictions for each step)
+            Tuple of (generated PIL image, final latent, context dict for gradient step)
         """
         device = next(self.dit.parameters()).device
         batch_size = 1
         
-        # Prepare embeddings (reuse existing method)
-        batch_data = {
-            "control": control_image,
-            "prompt": [prompt],
-            "n_controls": 0,
-        }
-        
         # Normalize control if needed
         if control_image.max() > 1.0:
             control_image = control_image / 255.0
-        batch_data["control"] = self.normalize_image(batch_data["control"])
+        control_normalized = self.normalize_image(control_image)
         
-        # Encode prompt
-        pooled_prompt_embeds, prompt_embeds, text_ids = self.encode_prompt(
-            prompt=[prompt],
-            prompt_2=None,
-            max_sequence_length=self.max_sequence_length,
-        )
-        
-        # Prepare control latents
-        control = batch_data["control"].to(device)
-        height, width = control.shape[2:]
-        _, control_latents, _, control_ids = self.prepare_latents(
-            control, batch_size, 16, height, width, self.weight_dtype
-        )
-        control_ids[..., 0] = 1
-        
-        # Create noise latents
-        latents, latent_ids = self.create_sampling_latents(
-            height, width, batch_size, 16, device, self.weight_dtype
-        )
-        latent_ids = torch.cat([latent_ids, control_ids], dim=0)
-        image_seq_len = latents.shape[1]
-        
-        # Prepare timesteps
-        timesteps, num_inference_steps = self.prepare_predict_timesteps(
-            num_inference_steps, image_seq_len, scheduler=self.sampling_scheduler
-        )
-        
-        # Guidance
-        guidance = torch.ones((batch_size,), device=device, dtype=self.weight_dtype)
-        
-        # Move tensors to device
-        pooled_prompt_embeds = pooled_prompt_embeds.to(device).to(self.weight_dtype)
-        prompt_embeds = prompt_embeds.to(device).to(self.weight_dtype)
-        text_ids = text_ids.to(device).to(self.weight_dtype)
-        control_latents = control_latents.to(device).to(self.weight_dtype)
-        
-        self.sampling_scheduler.set_begin_index(0)
-        
-        # Store noise predictions for policy gradient
-        noise_predictions = []
-        
-        # Sampling loop WITH gradients
-        for t in timesteps:
-            latent_model_input = torch.cat([latents, control_latents], dim=1)
-            timestep = t.expand(batch_size).to(device).to(self.weight_dtype)
-            
-            # Forward pass - WITH gradients
-            noise_pred = self.dit(
-                hidden_states=latent_model_input,
-                timestep=timestep / 1000,
-                guidance=guidance,
-                pooled_projections=pooled_prompt_embeds,
-                encoder_hidden_states=prompt_embeds,
-                txt_ids=text_ids,
-                img_ids=latent_ids,
-                joint_attention_kwargs={},
-                return_dict=False,
-            )[0]
-            
-            noise_pred = noise_pred[:, :image_seq_len]
-            noise_predictions.append(noise_pred)
-            
-            # Scheduler step (no gradients needed here)
-            with torch.no_grad():
-                latents = self.sampling_scheduler.step(
-                    noise_pred.detach(), t, latents, return_dict=False
-                )[0]
-        
-        # Decode to image
         with torch.no_grad():
-            image_tensor = self.decode_vae_latent(latents.detach(), height, width)
-            # Convert to PIL
-            img_np = image_tensor[0].detach().permute(1, 2, 0).float().cpu().numpy()
+            # Encode prompt
+            pooled_prompt_embeds, prompt_embeds, text_ids = self.encode_prompt(
+                prompt=[prompt],
+                prompt_2=None,
+                max_sequence_length=self.max_sequence_length,
+            )
+            
+            # Prepare control latents
+            control = control_normalized.to(device)
+            height, width = control.shape[2:]
+            _, control_latents, _, control_ids = self.prepare_latents(
+                control, batch_size, 16, height, width, self.weight_dtype
+            )
+            control_ids[..., 0] = 1
+            
+            # Create noise latents
+            latents, latent_ids = self.create_sampling_latents(
+                height, width, batch_size, 16, device, self.weight_dtype
+            )
+            latent_ids = torch.cat([latent_ids, control_ids], dim=0)
+            image_seq_len = latents.shape[1]
+            
+            # Prepare timesteps
+            timesteps, num_inference_steps = self.prepare_predict_timesteps(
+                num_inference_steps, image_seq_len, scheduler=self.sampling_scheduler
+            )
+            
+            # Guidance
+            guidance = torch.ones((batch_size,), device=device, dtype=self.weight_dtype)
+            
+            # Move tensors to device
+            pooled_prompt_embeds = pooled_prompt_embeds.to(device).to(self.weight_dtype)
+            prompt_embeds = prompt_embeds.to(device).to(self.weight_dtype)
+            text_ids = text_ids.to(device).to(self.weight_dtype)
+            control_latents = control_latents.to(device).to(self.weight_dtype)
+            
+            self.sampling_scheduler.set_begin_index(0)
+            
+            # Standard sampling loop - NO gradients
+            for t in timesteps:
+                latent_model_input = torch.cat([latents, control_latents], dim=1)
+                timestep = t.expand(batch_size).to(device).to(self.weight_dtype)
+                
+                noise_pred = self.dit(
+                    hidden_states=latent_model_input,
+                    timestep=timestep / 1000,
+                    guidance=guidance,
+                    pooled_projections=pooled_prompt_embeds,
+                    encoder_hidden_states=prompt_embeds,
+                    txt_ids=text_ids,
+                    img_ids=latent_ids,
+                    joint_attention_kwargs={},
+                    return_dict=False,
+                )[0]
+                
+                noise_pred = noise_pred[:, :image_seq_len]
+                latents = self.sampling_scheduler.step(
+                    noise_pred, t, latents, return_dict=False
+                )[0]
+            
+            # Decode to image
+            image_tensor = self.decode_vae_latent(latents, height, width)
+            img_np = image_tensor[0].permute(1, 2, 0).float().cpu().numpy()
             img_np = (img_np * 255).round().astype("uint8")
             pil_image = Image.fromarray(img_np)
         
-        return pil_image, noise_predictions
+        # Store context needed for gradient computation
+        context = {
+            "pooled_prompt_embeds": pooled_prompt_embeds,
+            "prompt_embeds": prompt_embeds,
+            "text_ids": text_ids,
+            "control_latents": control_latents,
+            "latent_ids": latent_ids,
+            "guidance": guidance,
+            "height": height,
+            "width": width,
+            "image_seq_len": image_seq_len,
+        }
+        
+        return pil_image, latents.detach(), context
 
-    def compute_kl_penalty(
+    def compute_single_step_loss(
         self,
-        current_noise_preds: list[torch.Tensor],
-        reference_noise_preds: list[torch.Tensor],
+        final_latent: torch.Tensor,
+        context: dict,
+        advantage: float,
     ) -> torch.Tensor:
         """
-        Compute KL divergence penalty between current and reference model predictions.
+        Compute policy gradient loss using single-step approximation (DDPO-style).
         
-        Approximates KL using MSE between noise predictions as a proxy.
+        Instead of backpropping through all 20 diffusion steps, we:
+        1. Sample a random timestep
+        2. Add noise to the final latent to get noisy latent at that timestep
+        3. Do ONE forward pass with gradients
+        4. Weight the loss by the advantage
+        
+        This is a Monte Carlo estimate of the full trajectory gradient.
         
         Args:
-            current_noise_preds: Noise predictions from current model
-            reference_noise_preds: Noise predictions from reference model
+            final_latent: The final clean latent from sampling [1, seq_len, dim]
+            context: Dict with embeddings and other info from sampling
+            advantage: The GRPO advantage (positive = good, negative = bad)
             
         Returns:
-            KL penalty (scalar tensor)
+            Weighted loss tensor with gradients
         """
-        kl_sum = 0.0
-        for curr, ref in zip(current_noise_preds, reference_noise_preds):
-            # Use MSE as proxy for KL
-            kl_sum = kl_sum + torch.mean((curr - ref.detach()) ** 2)
-        return kl_sum / len(current_noise_preds)
+        device = next(self.dit.parameters()).device
+        
+        # Sample a random timestep (weighted toward early timesteps for better signal)
+        # Using uniform for simplicity, but could use other distributions
+        t_idx = torch.randint(0, 1000, (1,), device=device)
+        t = t_idx.float() / 1000  # Normalize to [0, 1]
+        
+        # Get scheduler sigmas for adding noise
+        # We use the scheduler's noise schedule to add appropriate noise
+        sigma = t  # Simple linear schedule approximation
+        
+        # Add noise to final latent to get noisy latent at timestep t
+        noise = torch.randn_like(final_latent)
+        noisy_latent = final_latent + sigma * noise
+        
+        # Prepare model input
+        control_latents = context["control_latents"]
+        latent_model_input = torch.cat([noisy_latent, control_latents], dim=1)
+        
+        # Forward pass WITH gradients
+        noise_pred = self.dit(
+            hidden_states=latent_model_input,
+            timestep=t.expand(1).to(self.weight_dtype),
+            guidance=context["guidance"],
+            pooled_projections=context["pooled_prompt_embeds"],
+            encoder_hidden_states=context["prompt_embeds"],
+            txt_ids=context["text_ids"],
+            img_ids=context["latent_ids"],
+            joint_attention_kwargs={},
+            return_dict=False,
+        )[0]
+        
+        noise_pred = noise_pred[:, :context["image_seq_len"]]
+        
+        # Compute denoising score matching loss
+        # This is the standard diffusion training objective
+        mse_loss = torch.mean((noise_pred - noise) ** 2)
+        
+        # Weight by advantage (REINFORCE-style)
+        # Positive advantage = reward was better than average = reinforce this behavior
+        #   → positive loss → optimizer minimizes → decreases MSE → reinforces
+        # Negative advantage = reward was worse than average = discourage this behavior
+        #   → negative loss → optimizer minimizes → increases MSE → discourages
+        weighted_loss = advantage * mse_loss
+        
+        return weighted_loss
 
     def grpo_training_step(
         self,
@@ -456,13 +501,15 @@ class GRPOFluxKontextTrainer(FluxKontextLoraTrainer):
         num_inference_steps: int = 20,
     ) -> dict[str, Any]:
         """
-        Perform one GRPO training step.
+        Perform one GRPO training step using single-step approximation.
         
-        For each prompt:
-        1. Generate K samples
-        2. Compute rewards via SAM3
-        3. Compute advantages
-        4. Compute policy gradient loss
+        Memory-efficient approach (DDPO-style):
+        1. Generate K samples WITHOUT gradients (just sampling)
+        2. Compute rewards via SAM3 (black-box)
+        3. Compute group-relative advantages
+        4. For each sample, compute single-step loss weighted by advantage
+        
+        This uses ~1/20th the memory of full-trajectory gradient tracking.
         
         Args:
             control_images: List of control image tensors
@@ -473,66 +520,82 @@ class GRPOFluxKontextTrainer(FluxKontextLoraTrainer):
             Dictionary with loss, rewards, advantages, etc.
         """
         device = next(self.dit.parameters()).device
-        total_loss = torch.tensor(0.0, device=device, requires_grad=True)
         
         all_rewards = []
         all_advantages = []
         exact_matches = 0
         total_samples = 0
         
+        # Store sample data for gradient computation
+        sample_data = []
+        
         for control_img, prompt in zip(control_images, prompts):
             expected_count = self.extract_count_from_prompt(prompt)
             
-            # Generate K samples
+            # Phase 1: Generate K samples WITHOUT gradients
+            prompt_samples = []
             sample_rewards = []
-            sample_noise_preds = []
             
             for k in range(self.k_samples):
-                # Generate sample with gradients
-                pil_image, noise_preds = self.sample_with_gradients(
+                # Generate sample - NO gradient tracking (memory efficient)
+                pil_image, final_latent, context = self.sample_without_gradients(
                     control_img, prompt, num_inference_steps
                 )
                 
-                # Count dots (no gradients - black box)
-                with torch.no_grad():
-                    actual_count = self.count_dots_in_image(pil_image)
+                # Count dots via SAM3 (black-box reward)
+                actual_count = self.count_dots_in_image(pil_image)
                 
                 # Compute reward
                 reward = self.compute_reward(expected_count, actual_count)
                 sample_rewards.append(reward)
-                sample_noise_preds.append(noise_preds)
+                
+                # Store for gradient computation
+                prompt_samples.append({
+                    "final_latent": final_latent,
+                    "context": context,
+                    "actual_count": actual_count,
+                })
                 
                 # Track accuracy
                 if actual_count == expected_count:
                     exact_matches += 1
                 total_samples += 1
+                
+                # Free PIL image memory
+                del pil_image
             
-            # Compute advantages
+            # Phase 2: Compute advantages for this prompt's samples
             advantages = self.compute_advantages(sample_rewards)
             
             all_rewards.extend(sample_rewards)
             all_advantages.extend(advantages)
             
-            # Compute policy gradient loss for this prompt's samples
-            for k in range(self.k_samples):
-                advantage = advantages[k]
-                noise_preds = sample_noise_preds[k]
-                
-                # Policy gradient: -advantage × log_prob
-                # We approximate log_prob using negative MSE of noise predictions
-                # Higher MSE = lower probability, so we use -MSE as log_prob proxy
-                log_prob_proxy = torch.tensor(0.0, device=device)
-                for noise_pred in noise_preds:
-                    # Sum of squared predictions (proxy for log probability)
-                    log_prob_proxy = log_prob_proxy - torch.mean(noise_pred ** 2)
-                
-                # Policy gradient loss component
-                pg_loss = -advantage * log_prob_proxy / len(noise_preds)
-                total_loss = total_loss + pg_loss
+            # Store samples with their advantages
+            for k, sample in enumerate(prompt_samples):
+                sample["advantage"] = advantages[k]
+                sample_data.append(sample)
+        
+        # Phase 3: Compute gradient loss using single-step approximation
+        # Now we do forward passes WITH gradients, but only 1 step per sample
+        total_loss = torch.tensor(0.0, device=device, requires_grad=True)
+        
+        for sample in sample_data:
+            # Single-step gradient computation
+            step_loss = self.compute_single_step_loss(
+                final_latent=sample["final_latent"],
+                context=sample["context"],
+                advantage=sample["advantage"],
+            )
+            total_loss = total_loss + step_loss
+            
+            # Clear sample data to free memory
+            del sample["final_latent"]
+            del sample["context"]
         
         # Normalize by number of samples
-        num_samples = len(control_images) * self.k_samples
-        total_loss = total_loss / num_samples
+        num_samples = len(sample_data)
+        if num_samples > 0:
+            total_loss = total_loss / num_samples
         
         # Compute metrics
         accuracy = exact_matches / total_samples if total_samples > 0 else 0.0
@@ -552,8 +615,9 @@ class GRPOFluxKontextTrainer(FluxKontextLoraTrainer):
         
         Overrides standard training to use GRPO algorithm.
         """
-        # Ensure SAM3 is initialized
-        self.initialize_sam3()
+        # Ensure SAM3 is initialized (only if not using API)
+        if not self.use_sam3_api:
+            self.initialize_sam3()
         
         for batch_idx, batch in enumerate(train_dataloader):
             if self.training_interrupted:
@@ -678,9 +742,12 @@ class GRPOFluxKontextTrainer(FluxKontextLoraTrainer):
         self.configure_optimizers()
         self.setup_criterion()
         
-        # Initialize SAM3
-        logger.info("Initializing SAM3 for GRPO reward computation...")
-        self.initialize_sam3()
+        # Initialize SAM3 (only if not using API)
+        if self.use_sam3_api:
+            logger.info("GRPO: Using SAM3 API for reward computation")
+        else:
+            logger.info("Initializing local SAM3 for GRPO reward computation...")
+            self.initialize_sam3()
         
         train_dataloader = self.accelerator_prepare(train_dataloader)
         
