@@ -22,6 +22,21 @@ from qflux.utils.tools import hash_string_md5, pad_to_max_shape
 
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
+DEFAULT_PARQUET_COLUMN_MAP = {
+    "image": "edited_image",
+    "control": "original_image",
+    "prompt": "prompt",
+}
+
+
+def is_parquet_path(path: str) -> bool:
+    """Check if a path points to a parquet file or a directory containing parquet files."""
+    if path.endswith(".parquet"):
+        return True
+    if os.path.isdir(path):
+        return any(f.endswith(".parquet") for f in os.listdir(path))
+    return False
+
 
 _pat_end = re.compile(r"control_(\d+)\.(?:png|jpe?g|webp)$", re.IGNORECASE)
 
@@ -145,6 +160,8 @@ class ImageDataset(Dataset):
             self.dataset_paths = [dataset_path]
 
         self.hf_datasets: dict[str, Any] = {}
+        self.parquet_datasets: dict[str, Any] = {}
+        self.parquet_column_map = data_config.parquet_column_map or DEFAULT_PARQUET_COLUMN_MAP
         self.cache_dir = data_config.cache_dir
         self.use_cache = data_config.use_cache
         self.selected_control_indexes = data_config.selected_control_indexes
@@ -195,6 +212,8 @@ class ImageDataset(Dataset):
                 samples = self._load_huggingface_dataset(dataset_path, split=split)
             elif isinstance(dataset_path, str) and dataset_path.endswith(".csv"):
                 samples = self._load_csv_dataset(dataset_path)
+            elif isinstance(dataset_path, str) and is_parquet_path(dataset_path):
+                samples = self._load_parquet_dataset(dataset_path)
             else:
                 samples = self._load_local_dataset(dataset_path)
                 # [image_file, control_files, prompt_file, mask_file, dataset_type, local_index, global_index]
@@ -239,6 +258,53 @@ class ImageDataset(Dataset):
                 "global_index": dataset_info["start_idx"] + idx,
             }
             samples.append(sample_ref)
+        return samples
+
+    def _load_parquet_dataset(self, dataset_path: str) -> list[dict]:
+        """Load dataset from parquet file(s).
+
+        Accepts a single .parquet file or a directory containing .parquet files.
+        Uses HF datasets for lazy row access — images are decoded to PIL on demand.
+        Column names are mapped via self.parquet_column_map.
+        """
+        from datasets import load_dataset
+
+        if os.path.isdir(dataset_path):
+            data_files = sorted(glob.glob(os.path.join(dataset_path, "*.parquet")))
+        else:
+            data_files = [dataset_path]
+
+        dataset = load_dataset("parquet", data_files=data_files, split="train")
+        col_map = self.parquet_column_map
+        for role, col in col_map.items():
+            if col not in dataset.column_names:
+                raise ValueError(
+                    f"Parquet column '{col}' (mapped from '{role}') not found. "
+                    f"Available columns: {dataset.column_names}"
+                )
+
+        dataset_key = dataset_path
+        dataset_info = {
+            "type": "parquet",
+            "path": dataset_path,
+            "dataset": dataset,
+            "length": len(dataset),
+            "start_idx": len(self.all_samples),
+        }
+        self.parquet_datasets[dataset_key] = dataset_info
+        logging.info(
+            "Loaded parquet dataset: %s (%d samples, columns: %s)",
+            dataset_path, len(dataset), dataset.column_names,
+        )
+
+        samples = []
+        for idx in range(len(dataset)):
+            samples.append({
+                "dataset_type": "parquet",
+                "parquet_key": dataset_key,
+                "local_index": idx,
+                "global_index": dataset_info["start_idx"] + idx,
+            })
         return samples
 
     def _load_local_dataset(self, dataset_path: str) -> list[dict]:
@@ -486,6 +552,25 @@ class ImageDataset(Dataset):
             data["prompt"] = prompt
             if data_item["control_mask"] is not None:
                 data["mask"] = np.array(data_item["control_mask"].convert("L"))
+
+            if self.cache_manager is not None:
+                file_hashes = self.get_file_hashes(data)
+                data["file_hashes"] = file_hashes
+        elif sample["dataset_type"] == "parquet":
+            local_index = sample["local_index"]
+            pq_key = sample["parquet_key"]
+            row = self.parquet_datasets[pq_key]["dataset"][local_index]
+            col_map = self.parquet_column_map
+
+            img_col = col_map.get("image", "edited_image")
+            ctrl_col = col_map.get("control", "original_image")
+            prompt_col = col_map.get("prompt", "prompt")
+
+            if row[img_col] is not None:
+                data["image"] = row[img_col].convert("RGB")
+            if row[ctrl_col] is not None:
+                data["control"] = row[ctrl_col].convert("RGB")
+            data["prompt"] = row[prompt_col]
 
             if self.cache_manager is not None:
                 file_hashes = self.get_file_hashes(data)

@@ -386,6 +386,7 @@ class DatasetInitArgs(BaseModel):
     use_edit_mask: bool = False
     selected_control_indexes: list[int] | None = None
     prompt_empty_drop_keys: list[str] | None = None
+    parquet_column_map: dict[str, str] | None = None
     processor: ImageProcessorConfig = Field(default_factory=ImageProcessorConfig)
 
 
