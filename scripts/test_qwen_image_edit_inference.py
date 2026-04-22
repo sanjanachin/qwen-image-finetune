@@ -114,7 +114,10 @@ def main():
     width = (width // 16) * 16
     print(f"Output dimensions: {width}x{height}")
 
+    import time
+
     print(f"\nRunning inference ({args.num_inference_steps} steps, cfg={args.true_cfg_scale})...")
+    start_time = time.time()
     results = trainer.predict(
         image=source_image,
         prompt=args.prompt,
@@ -126,10 +129,12 @@ def main():
         width=width,
         output_type="pil",
     )
+    elapsed = time.time() - start_time
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
     results[0].save(args.output)
     print(f"\nSaved to: {args.output}")
+    print(f"Inference time: {elapsed:.1f}s ({elapsed / args.num_inference_steps:.2f}s/step)")
 
 
 if __name__ == "__main__":
