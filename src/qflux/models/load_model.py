@@ -21,12 +21,17 @@ def load_vae(pretrained_model_name_or_path, weight_dtype):
 def load_qwenvl(pretrained_model_name_or_path, weight_dtype):
     from transformers import Qwen2_5_VLForConditionalGeneration
 
+    try:
+        import flash_attn  # noqa: F401
+        attn_impl = "flash_attention_2"
+    except ImportError:
+        attn_impl = "sdpa"
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         "Qwen/Qwen2.5-VL-7B-Instruct",
-        torch_dtype=weight_dtype,  # CPU 用 fp32
+        torch_dtype=weight_dtype,
         use_safetensors=True,
-        attn_implementation="flash_attention_2",
-    )  # 默认就在 CPU；稳妥可再
+        attn_implementation=attn_impl,
+    )
     logging.info(f"loaded qwen_vl from {pretrained_model_name_or_path} with weight_dtype {weight_dtype}")
     return model
 
@@ -35,13 +40,18 @@ def load_transformer(pretrained_model_name_or_path, weight_dtype, device_map="cu
     import logging
 
     logging.info(f"load model {pretrained_model_name_or_path}")
+    try:
+        import flash_attn  # noqa: F401
+        attn_impl = "flash_attention_2"
+    except ImportError:
+        attn_impl = "sdpa"
     flux_transformer = QwenImageTransformer2DModel.from_pretrained(
         pretrained_model_name_or_path,
         subfolder="transformer",
         torch_dtype=weight_dtype,
-        use_safetensors=True,  # 使用 safetensors 格式，加载更快,
-        attn_implementation="flash_attention_2",
-        device_map="cpu",  # load to cpu instead of gpu
+        use_safetensors=True,
+        attn_implementation=attn_impl,
+        device_map="cpu",
     )
     logging.info(f"loaded transformer from {pretrained_model_name_or_path} with weight_dtype {weight_dtype}")
     return flux_transformer
