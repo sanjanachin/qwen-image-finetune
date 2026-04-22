@@ -13,7 +13,7 @@ tpu_env: []
 tpu_use_cluster: false
 tpu_use_sudo: false
 use_cpu: false
-dynamo_backend: inductor
+dynamo_backend: "NO"
 distributed_type: NO  # Single GPU training
 
 deepspeed_config: {}
