@@ -1,6 +1,8 @@
 """
 Test inference script for Qwen-Image-Edit base model.
 
+Uses QwenImageEditPipeline with CPU offloading to fit on a single GPU.
+
 Usage:
     cd /home/ubuntu/sanjana-fs-us-east-1/qwen-image-finetune
     python scripts/test_qwen_image_edit_inference.py \
@@ -23,40 +25,10 @@ Usage:
 import argparse
 import os
 import sys
-
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(project_root, "src"))
+import time
 
 import torch
 from PIL import Image
-
-from qflux.data.config import Config, ModelConfig, LoraConfig, PredictConfig, DeviceConfig
-
-
-def build_minimal_config(
-    model_path: str = "Qwen/Qwen-Image-Edit",
-    lora_weights: str | None = None,
-) -> Config:
-    """Build a minimal Config object for inference programmatically."""
-    config = Config(
-        trainer="QwenImageEdit",
-        mode="predict",
-        model=ModelConfig(
-            pretrained_model_name_or_path=model_path,
-            quantize=False,
-            lora=LoraConfig(
-                pretrained_weight=lora_weights,
-            ),
-        ),
-        predict=PredictConfig(
-            devices=DeviceConfig(
-                vae="cuda:0",
-                text_encoder="cuda:0",
-                dit="cuda:0",
-            ),
-        ),
-    )
-    return config
 
 
 def main():
@@ -76,7 +48,7 @@ def main():
     parser.add_argument("--output", type=str, default="output.png", help="Output image path")
     parser.add_argument("--height", type=int, default=None, help="Output height (defaults to source image height)")
     parser.add_argument("--width", type=int, default=None, help="Output width (defaults to source image width)")
-    parser.add_argument("--num_inference_steps", type=int, default=50, help="Number of diffusion steps")
+    parser.add_argument("--num_inference_steps", type=int, default=20, help="Number of diffusion steps")
     parser.add_argument("--true_cfg_scale", type=float, default=4.0, help="Classifier-free guidance scale")
     parser.add_argument("--negative_prompt", type=str, default=" ", help="Negative prompt")
     parser.add_argument("--seed", type=int, default=None, help="Random seed")
@@ -90,49 +62,48 @@ def main():
     print(f"Source image: {args.image} ({source_image.size[0]}x{source_image.size[1]})")
     print(f"Prompt: \"{args.prompt}\"")
 
+    generator = None
     if args.seed is not None:
-        torch.manual_seed(args.seed)
+        generator = torch.manual_seed(args.seed)
         print(f"Seed: {args.seed}")
 
-    config = build_minimal_config(
-        model_path=args.model_path,
-        lora_weights=args.lora_weights,
+    print(f"\nLoading pipeline: {args.model_path}")
+    from diffusers import QwenImageEditPipeline
+
+    pipeline = QwenImageEditPipeline.from_pretrained(
+        args.model_path,
+        torch_dtype=torch.bfloat16,
     )
+    pipeline.enable_sequential_cpu_offload()
 
-    print(f"\nLoading model: {args.model_path}")
     if args.lora_weights:
-        print(f"LoRA weights: {args.lora_weights}")
+        print(f"Loading LoRA weights: {args.lora_weights}")
+        pipeline.load_lora_weights(args.lora_weights)
 
-    from qflux.trainer.qwen_image_edit_trainer import QwenImageEditTrainer
-
-    trainer = QwenImageEditTrainer(config)
+    print("Model loaded successfully")
 
     height = args.height or source_image.size[1]
     width = args.width or source_image.size[0]
-    # Make divisible by 16
     height = (height // 16) * 16
     width = (width // 16) * 16
     print(f"Output dimensions: {width}x{height}")
 
-    import time
-
     print(f"\nRunning inference ({args.num_inference_steps} steps, cfg={args.true_cfg_scale})...")
     start_time = time.time()
-    results = trainer.predict(
+    output = pipeline(
         image=source_image,
         prompt=args.prompt,
-        num_inference_steps=args.num_inference_steps,
-        true_cfg_scale=args.true_cfg_scale,
         negative_prompt=args.negative_prompt,
-        weight_dtype=torch.bfloat16,
+        true_cfg_scale=args.true_cfg_scale,
+        num_inference_steps=args.num_inference_steps,
         height=height,
         width=width,
-        output_type="pil",
+        generator=generator,
     )
     elapsed = time.time() - start_time
 
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    results[0].save(args.output)
+    output.images[0].save(args.output)
     print(f"\nSaved to: {args.output}")
     print(f"Inference time: {elapsed:.1f}s ({elapsed / args.num_inference_steps:.2f}s/step)")
 
