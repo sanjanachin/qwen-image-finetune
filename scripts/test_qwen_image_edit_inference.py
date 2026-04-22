@@ -30,27 +30,32 @@ sys.path.insert(0, os.path.join(project_root, "src"))
 import torch
 from PIL import Image
 
-from qflux.data.config import load_config_from_yaml, Config, ModelConfig, LoraConfig
+from qflux.data.config import Config, ModelConfig, LoraConfig, PredictConfig, DeviceConfig
 
 
 def build_minimal_config(
     model_path: str = "Qwen/Qwen-Image-Edit",
     lora_weights: str | None = None,
 ) -> Config:
-    """Build a minimal Config object for inference without a YAML file."""
-    config = load_config_from_yaml(
-        os.path.join(project_root, "configs", "face_seg_config.yaml")
+    """Build a minimal Config object for inference programmatically."""
+    config = Config(
+        trainer="QwenImageEdit",
+        mode="predict",
+        model=ModelConfig(
+            pretrained_model_name_or_path=model_path,
+            quantize=False,
+            lora=LoraConfig(
+                pretrained_weight=lora_weights,
+            ),
+        ),
+        predict=PredictConfig(
+            devices=DeviceConfig(
+                vae="cuda:0",
+                text_encoder="cuda:0",
+                dit="cuda:0",
+            ),
+        ),
     )
-    config.trainer = "QwenImageEdit"
-    config.model.pretrained_model_name_or_path = model_path
-    config.model.quantize = False
-    if lora_weights:
-        config.model.lora.pretrained_weight = lora_weights
-    else:
-        config.model.lora.pretrained_weight = None
-    config.predict.devices.vae = "cuda:0"
-    config.predict.devices.text_encoder = "cuda:0"
-    config.predict.devices.dit = "cuda:0"
     return config
 
 
