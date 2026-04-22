@@ -11,7 +11,7 @@
 #
 # Prerequisites:
 #   1. Download the dataset first:
-#      python scripts/counting/download_and_convert_data.py
+#      python scripts/counting/download_data.py
 #   2. Activate the conda environment:
 #      conda activate qwen-image-edit
 
@@ -53,7 +53,7 @@ DATA_DIR="$QFLUX_REPO_ROOT/data/counting/train"
 if [[ ! -d "$DATA_DIR" ]]; then
     echo "Error: Training data not found at $DATA_DIR"
     echo "Run the download script first:"
-    echo "  python scripts/counting/download_and_convert_data.py"
+    echo "  python scripts/counting/download_data.py"
     exit 1
 fi
 
@@ -61,7 +61,7 @@ PARQUET_COUNT=$(find "$DATA_DIR" -name "*.parquet" 2>/dev/null | wc -l)
 if (( PARQUET_COUNT == 0 )); then
     echo "Error: No .parquet files found in $DATA_DIR"
     echo "Run the download script first:"
-    echo "  python scripts/counting/download_and_convert_data.py"
+    echo "  python scripts/counting/download_data.py"
     exit 1
 fi
 echo "Training data: $PARQUET_COUNT parquet file(s) in $DATA_DIR"

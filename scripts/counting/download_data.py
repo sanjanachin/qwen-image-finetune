@@ -12,9 +12,9 @@ No conversion is needed — the training pipeline reads parquet files natively,
 decoding PIL images on the fly during cache building and training.
 
 Usage:
-    python scripts/counting/download_and_convert_data.py
-    python scripts/counting/download_and_convert_data.py --splits train val
-    python scripts/counting/download_and_convert_data.py --output-dir /mnt/data/counting
+    python scripts/counting/download_data.py
+    python scripts/counting/download_data.py --splits train val
+    python scripts/counting/download_data.py --output-dir /mnt/data/counting
 """
 
 import argparse

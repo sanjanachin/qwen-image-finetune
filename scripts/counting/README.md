@@ -17,7 +17,7 @@ Fine-tune [Qwen-Image-Edit](https://huggingface.co/Qwen/Qwen-Image-Edit) with Lo
 ### 1. Download the dataset
 
 ```bash
-python scripts/counting/download_and_convert_data.py
+python scripts/counting/download_data.py
 ```
 
 This downloads ~29GB of parquet files from S3. The training pipeline reads parquet natively — no conversion to individual image files is needed. See `--help` for options like `--splits train` to download a single split.
@@ -69,7 +69,7 @@ QwenImageTransformer2DModel.from_pretrained("outputs/counting_merged", subfolder
 
 | File | Purpose |
 |------|---------|
-| `scripts/counting/download_and_convert_data.py` | Download parquet data from S3 |
+| `scripts/counting/download_data.py` | Download parquet data from S3 |
 | `scripts/counting/train_counting.sh` | End-to-end training script (cache -> train) |
 | `scripts/counting/merge_lora.py` | Merge LoRA weights into base model for downstream RL |
 | `configs/counting_qwen_image_edit.yaml` | Training configuration (hyperparameters, paths, validation) |
