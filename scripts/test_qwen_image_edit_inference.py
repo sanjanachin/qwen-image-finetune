@@ -1,7 +1,8 @@
 """
 Test inference script for Qwen-Image-Edit base model.
 
-Uses QwenImageEditPipeline with CPU offloading to fit on a single GPU.
+Loads the transformer in 4-bit quantization so the full pipeline fits on a
+single 40GB GPU without slow layer-by-layer CPU offloading.
 
 Usage:
     cd /home/ubuntu/sanjana-fs-us-east-1/qwen-image-finetune
@@ -67,14 +68,26 @@ def main():
         generator = torch.manual_seed(args.seed)
         print(f"Seed: {args.seed}")
 
-    print(f"\nLoading pipeline: {args.model_path}")
-    from diffusers import QwenImageEditPipeline
+    from diffusers import BitsAndBytesConfig, QwenImageEditPipeline
+    from diffusers.models.transformers.transformer_qwenimage import QwenImageTransformer2DModel
 
-    pipeline = QwenImageEditPipeline.from_pretrained(
+    quant_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
+
+    print(f"\nLoading transformer in 4-bit from: {args.model_path}")
+    transformer = QwenImageTransformer2DModel.from_pretrained(
         args.model_path,
+        subfolder="transformer",
+        quantization_config=quant_config,
         torch_dtype=torch.bfloat16,
     )
-    pipeline.enable_sequential_cpu_offload()
+
+    print(f"Loading pipeline: {args.model_path}")
+    pipeline = QwenImageEditPipeline.from_pretrained(
+        args.model_path,
+        transformer=transformer,
+        torch_dtype=torch.bfloat16,
+    )
+    pipeline.enable_model_cpu_offload()
 
     if args.lora_weights:
         print(f"Loading LoRA weights: {args.lora_weights}")
