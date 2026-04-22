@@ -94,7 +94,7 @@ class ValidationMixin:
                 control = self.tensor2pil(control)
                 images = [control]
                 controls_size = [[control.height, control.width]]
-                n_controls = data["n_controls"]
+                n_controls = data.get("n_controls", 0)
 
                 for j in range(n_controls):
                     control = data[f"control_{j + 1}"]
