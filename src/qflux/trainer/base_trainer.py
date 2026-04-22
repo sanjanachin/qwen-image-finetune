@@ -659,6 +659,8 @@ class BaseTrainer(ValidationMixin, ABC):
             self.train_epoch(epoch, train_dataloader)
             if self.training_interrupted:
                 break
+            if self.global_step >= self.config.train.max_train_steps:
+                break
 
         # 保存最后一个检查点
         self.save_checkpoint(current_epoch, self.global_step, is_last=True)
