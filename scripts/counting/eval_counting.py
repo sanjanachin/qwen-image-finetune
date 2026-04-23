@@ -184,8 +184,8 @@ class SAM3Counter:
 # Qwen-Image-Edit inference helpers
 # ---------------------------------------------------------------------------
 
-def load_pipeline(model_path: str, lora_path: str | None = None):
-    """Load QwenImageEditPipeline in bf16 on CUDA, optionally with LoRA."""
+def load_pipeline(model_path: str):
+    """Load QwenImageEditPipeline in bf16 on CUDA."""
     from diffusers import QwenImageEditPipeline
 
     print(f"[Model] Loading pipeline: {model_path}")
@@ -194,11 +194,6 @@ def load_pipeline(model_path: str, lora_path: str | None = None):
         torch_dtype=torch.bfloat16,
     )
     pipe.to("cuda")
-
-    if lora_path is not None:
-        print(f"[Model] Loading LoRA weights: {lora_path}")
-        pipe.load_lora_weights(lora_path)
-
     print("[Model] Pipeline ready")
     return pipe
 
@@ -390,6 +385,27 @@ def extract_count_from_prompt(prompt: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def load_saved_results(results_dir: Path, label: str, num_samples: int) -> tuple[list[int], list[int]] | None:
+    """Load ground truths and predictions from saved per-sample meta files.
+
+    Returns (ground_truths, predictions) if all samples have results for the
+    given label, or None if the phase is incomplete.
+    """
+    ground_truths: list[int] = []
+    predictions: list[int] = []
+
+    for idx in range(num_samples):
+        meta_file = results_dir / f"sample_{idx:05d}" / f"{label}_meta.json"
+        if not meta_file.exists():
+            return None
+        with open(meta_file) as f:
+            meta = json.load(f)
+        ground_truths.append(meta["ground_truth"])
+        predictions.append(meta[f"{label}_detected"])
+
+    return ground_truths, predictions
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -480,6 +496,8 @@ def main():
     )
     parser.add_argument("--save-results", action="store_true", help="Save per-sample images and metadata")
     parser.add_argument("--results-dir", default=None, help="Output directory (default: auto under checkpoint)")
+    parser.add_argument("--resume", default=None,
+                        help="Path to an existing results dir to resume from (skips completed phases)")
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -504,7 +522,13 @@ def main():
     # Prepare results directory
     # ------------------------------------------------------------------
     save_dir: Path | None = None
-    if args.save_results:
+    if args.resume:
+        save_dir = Path(args.resume)
+        if not save_dir.exists():
+            sys.exit(f"Error: Resume directory not found at {save_dir}")
+        args.save_results = True
+        print(f"Resuming from: {save_dir}")
+    elif args.save_results:
         if args.results_dir:
             save_dir = Path(args.results_dir)
         else:
@@ -538,30 +562,48 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # Evaluate BASE model
+    # Check for existing results when resuming
     # ------------------------------------------------------------------
-    print("\n--- Evaluating BASE model (no LoRA) ---")
-    pipe_base = load_pipeline(model_path)
-    base_gt, base_pred, _ = evaluate_model(
-        pipe_base, samples, counter, cfg, label="base", save_dir=save_dir,
-    )
-    free_pipeline(pipe_base)
-    print("Base model evaluation complete.\n")
+    base_cached = None
+    ft_cached = None
+    if save_dir is not None and save_dir.exists():
+        base_cached = load_saved_results(save_dir, "base", len(samples))
+        ft_cached = load_saved_results(save_dir, "finetuned", len(samples))
+
+    need_base = base_cached is None
+    need_ft = ft_cached is None
+
+    if not need_base:
+        print("Base model results found on disk -- skipping base inference.")
+        base_gt, base_pred = base_cached
+    if not need_ft:
+        print("Fine-tuned model results found on disk -- skipping fine-tuned inference.")
+        ft_gt, ft_pred = ft_cached
 
     # ------------------------------------------------------------------
-    # Evaluate FINE-TUNED model
+    # Run inference for any phase that still needs it
     # ------------------------------------------------------------------
-    print("--- Evaluating FINE-TUNED model ---")
-    pipe_ft = load_pipeline(model_path, lora_path=str(lora_file))
-    ft_gt, ft_pred, _ = evaluate_model(
-        pipe_ft, samples, counter, cfg, label="finetuned", save_dir=save_dir,
-    )
-    free_pipeline(pipe_ft)
-    print("Fine-tuned model evaluation complete.\n")
+    if need_base or need_ft:
+        pipe = load_pipeline(model_path)
 
-    # ------------------------------------------------------------------
-    # Unload SAM3
-    # ------------------------------------------------------------------
+        if need_base:
+            print("\n--- Evaluating BASE model (no LoRA) ---")
+            base_gt, base_pred, _ = evaluate_model(
+                pipe, samples, counter, cfg, label="base", save_dir=save_dir,
+            )
+            print("Base model evaluation complete.\n")
+
+        if need_ft:
+            print("--- Evaluating FINE-TUNED model ---")
+            print(f"[Model] Loading LoRA weights: {lora_file}")
+            pipe.load_lora_weights(str(lora_file))
+            ft_gt, ft_pred, _ = evaluate_model(
+                pipe, samples, counter, cfg, label="finetuned", save_dir=save_dir,
+            )
+            print("Fine-tuned model evaluation complete.\n")
+
+        free_pipeline(pipe)
+
     counter.unload()
 
     # ------------------------------------------------------------------
