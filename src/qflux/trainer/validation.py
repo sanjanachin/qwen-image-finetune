@@ -426,7 +426,8 @@ class ValidationMixin:
         log_generate_tensor = pad_to_max_shape(log_images)
         # [B, C, H, W]
 
-        prompt = validation_samples[0]["prompt"]
+        prompts = [s["prompt"] for s in validation_samples]
+        prompt_summary = "\n".join(f"[{i}] {p}" for i, p in enumerate(prompts))
 
         # Log control images if available
         n_controls = len(validation_samples[0]["images"])
@@ -467,8 +468,8 @@ class ValidationMixin:
 
         # Log prompt text using LoggerManager
         self.logger_manager.log_text(
-            "validation/prompt",
-            prompt,
+            "validation/prompt_summary",
+            prompt_summary,
             step=self.global_step,
         )
 
