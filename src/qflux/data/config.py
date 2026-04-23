@@ -577,7 +577,7 @@ class CacheConfig(BaseModel):
     devices: DeviceConfig = Field(default_factory=DeviceConfig)
     use_cache: bool = True
     cache_dir: str = "./cache/"
-    prompt_empty_drop_keys: list[str] = Field(default_factory=lambda: ["prompt_embed", "prompt_embeds_mask"])
+    prompt_empty_drop_keys: list[str] = Field(default_factory=lambda: ["empty_prompt_embeds", "empty_prompt_embeds_mask"])
 
     # 规范化：展开 ~ / 环境变量，压缩多余斜杠，保留 scheme://
     @field_validator("cache_dir", mode="before")

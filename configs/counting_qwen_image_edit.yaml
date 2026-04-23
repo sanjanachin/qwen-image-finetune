@@ -107,8 +107,8 @@ cache:
   cache_dir: ${logging.output_dir}/cache
   use_cache: true
   prompt_empty_drop_keys:
-    - prompt_embeds
-    - prompt_embeds_mask
+    - empty_prompt_embeds
+    - empty_prompt_embeds_mask
 
 predict:
   devices:
