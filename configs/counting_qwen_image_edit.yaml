@@ -36,7 +36,7 @@ data:
         target_size: [512, 512]
         controls_size: [[512, 512]]
 
-  batch_size: 1
+  batch_size: 2
   num_workers: 4
   shuffle: true
 
@@ -88,7 +88,7 @@ lr_scheduler:
   power: 1.0
 
 train:
-  gradient_accumulation_steps: 2
+  gradient_accumulation_steps: 1
   max_train_steps: 88100  # ~10 epochs (17620 samples / batch 1 / grad_accum 2 * 10)
   checkpointing_steps: 500
   checkpoints_total_limit: 5
