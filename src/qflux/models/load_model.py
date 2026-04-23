@@ -27,7 +27,7 @@ def load_qwenvl(pretrained_model_name_or_path, weight_dtype):
     except ImportError:
         attn_impl = "sdpa"
     model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        "Qwen/Qwen2.5-VL-7B-Instruct",
+        pretrained_model_name_or_path,
         torch_dtype=weight_dtype,
         use_safetensors=True,
         attn_implementation=attn_impl,
