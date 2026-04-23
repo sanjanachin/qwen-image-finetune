@@ -96,7 +96,7 @@ class QwenImageEditTrainer(BaseTrainer):
 
         self.vae = load_vae("Qwen/Qwen-Image-Edit", weight_dtype=self.weight_dtype)  # use original one
         # same to model constructed from vae self.vae = pipe.vae
-        self.text_encoder = load_qwenvl("Qwen/Qwen-Image-Edit", weight_dtype=self.weight_dtype)  # use original one
+        self.text_encoder = load_qwenvl("Qwen/Qwen-Image-Edit", weight_dtype=self.weight_dtype, subfolder="text_encoder")  # use original one
         logging.info(f"text_encoder device: {self.text_encoder.device}")
         # self.dit = pipe.transformer this is same as the following, verified
         from qflux.models.load_model import load_transformer
