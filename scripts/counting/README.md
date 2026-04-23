@@ -9,7 +9,7 @@ Fine-tune [Qwen-Image-Edit](https://huggingface.co/Qwen/Qwen-Image-Edit) with Lo
 | **Model** | Qwen-Image-Edit (DiT with Qwen2.5-VL text encoder) |
 | **Method** | LoRA on attention layers (`to_k`, `to_q`, `to_v`, `to_out.0`) |
 | **Dataset** | 17,620 train / 216 val / 216 test counting image-edit pairs (parquet) |
-| **Training** | ~3 epochs, bf16 mixed precision, Adam8bit, cosine LR schedule |
+| **Training** | ~10 epochs, bf16 mixed precision, Adam8bit, cosine LR schedule |
 | **Hardware** | Single GPU with ≥80 GB VRAM (e.g. H100 80GB SXM5) |
 
 ## Quick Start
@@ -65,6 +65,31 @@ The merged model can then be loaded by the GRPO script via:
 QwenImageTransformer2DModel.from_pretrained("outputs/counting_merged", subfolder="transformer")
 ```
 
+### 5. Evaluate a checkpoint
+
+Install SAM3 (one-time setup, if not already installed):
+
+```bash
+pip install -e /path/to/sam3
+```
+
+Run evaluation against the base model:
+
+```bash
+python scripts/counting/eval_counting.py \
+    --checkpoint outputs/counting_lora/counting_qwen_image_edit/v0/checkpoint-0-5000
+```
+
+This loads the 216-sample test split, generates images with both the base model and the LoRA checkpoint, counts objects using SAM3, and prints an overall + per-count comparison table. To also save per-sample images and a full results JSON:
+
+```bash
+python scripts/counting/eval_counting.py \
+    --checkpoint outputs/counting_lora/counting_qwen_image_edit/v0/checkpoint-0-5000 \
+    --save-results
+```
+
+All tunable parameters (SAM3 thresholds, inference steps, CFG scale) live in `configs/counting_eval.yaml`.
+
 ## Files
 
 | File | Purpose |
@@ -72,7 +97,9 @@ QwenImageTransformer2DModel.from_pretrained("outputs/counting_merged", subfolder
 | `scripts/counting/download_data.py` | Download parquet data from S3 |
 | `scripts/counting/train_counting.sh` | End-to-end training script (cache -> train) |
 | `scripts/counting/merge_lora.py` | Merge LoRA weights into base model for downstream RL |
+| `scripts/counting/eval_counting.py` | Evaluate counting accuracy (base vs fine-tuned) |
 | `configs/counting_qwen_image_edit.yaml` | Training configuration (hyperparameters, paths, validation) |
+| `configs/counting_eval.yaml` | Evaluation configuration (SAM3 thresholds, inference params) |
 
 ## Training Configuration
 
@@ -85,7 +112,7 @@ LR schedule:          cosine with 100-step warmup
 Batch size:           1 (effective 2 with gradient accumulation)
 Mixed precision:      bf16
 Gradient checkpoint:  enabled
-Max steps:            26,430 (~3 epochs)
+Max steps:            88,100 (~10 epochs)
 Checkpoints:          every 500 steps (keep last 5)
 Validation:           every 250 steps (4 samples)
 ```

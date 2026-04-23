@@ -1,0 +1,29 @@
+# Counting evaluation configuration
+#
+# All tunable parameters for the eval script live here.
+# Run-specific options (checkpoint path, save flags) are CLI arguments.
+
+# --- Inference parameters ---
+inference:
+  num_inference_steps: 20
+  true_cfg_scale: 4.0
+  negative_prompt: " "
+  seed: 42
+
+# --- SAM3 object counting ---
+# Two-threshold design matching count-data-gen stage 5:
+#   minimum_confidence_threshold  -> passed to Sam3Processor (returns a wide set of detections)
+#   confidence_threshold          -> post-filter for the authoritative count
+sam3:
+  path: "../sam3"
+  minimum_confidence_threshold: 0.2
+  confidence_threshold: 0.5
+  nms_iou_threshold: 0.5
+
+# --- Data ---
+data:
+  test_parquet_dir: "data/counting/test"
+
+# --- Model ---
+model:
+  pretrained_model_name_or_path: "Qwen/Qwen-Image-Edit"
