@@ -114,7 +114,7 @@ else
     echo ""
 
     echo "Phase 2: Starting training..."
-    echo "  Steps:        ~26,430 (3 epochs)"
+    echo "  Steps:        ~88,100 (10 epochs)"
     echo "  Batch size:   1 (effective 2 with grad accum)"
     echo "  Checkpoints:  every 500 steps"
     echo "  Validation:   every 250 steps"

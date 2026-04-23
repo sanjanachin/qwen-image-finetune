@@ -875,9 +875,8 @@ class QwenImageEditTrainer(BaseTrainer):
 
     def _get_sigmas(self, timesteps, n_dim=4, dtype=torch.float32):
         """Calculate sigma values for noise scheduler"""
-        noise_scheduler_copy = copy.deepcopy(self.scheduler)
-        sigmas = noise_scheduler_copy.sigmas.to(device=self.accelerator.device, dtype=dtype)
-        schedule_timesteps = noise_scheduler_copy.timesteps.to(self.accelerator.device)
+        sigmas = self.scheduler.sigmas.to(device=self.accelerator.device, dtype=dtype)
+        schedule_timesteps = self.scheduler.timesteps.to(self.accelerator.device)
         timesteps = timesteps.to(self.accelerator.device)
         step_indices = [(schedule_timesteps == t).nonzero().item() for t in timesteps]
         sigma = sigmas[step_indices].flatten()

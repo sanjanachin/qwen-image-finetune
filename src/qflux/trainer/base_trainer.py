@@ -543,7 +543,7 @@ class BaseTrainer(ValidationMixin, ABC):
                 # print('sync_gradients', self.accelerator.process_index)
             if self.accelerator.sync_gradients:
                 avg_loss = self.accelerator.gather(loss.detach()).mean()
-                self.train_loss = avg_loss.item() / self.config.train.gradient_accumulation_steps
+                self.train_loss = avg_loss.item()
                 self.running_loss = 0.9 * self.running_loss + 0.1 * self.train_loss
                 self.update_progressbar(
                     logs={
