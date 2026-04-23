@@ -511,6 +511,9 @@ class ImageDataset(Dataset):
             file_hashes["control_prompt_hash"] = self.cache_manager.get_hash(data["control"], data["prompt"])
         if "control" in data and "prompt" in data:
             file_hashes["control_empty_prompt_hash"] = self.cache_manager.get_hash(data["control"], "empty")
+        if "control" in data and "prompt" in data:
+            file_hashes["noimage_prompt_hash"] = hash_string_md5("__noimage__:" + data["prompt"])
+            file_hashes["noimage_empty_prompt_hash"] = hash_string_md5("__noimage__:__empty__")
         if "controls" in data:
             controls_sum_hash = file_hashes["control_hash"]
             for i in range(len(data["controls"])):
@@ -639,16 +642,27 @@ class ImageDataset(Dataset):
         # During cache building, we need raw data, not cached data
         if self.use_cache and self.cache_exists:
             try:
-                if random.random() < self.data_config.caption_dropout_rate:
-                    replace_empty_embeddings = True
+                p = self.data_config.caption_dropout_rate
+                enable_image_dropout = self.data_config.prompt_image_dropout_rate > 0
+
+                if enable_image_dropout and p > 0:
+                    r = random.random()
+                    if r < p:
+                        dropout_mode = "text_only"
+                    elif r < 2 * p:
+                        dropout_mode = "both"
+                    elif r < 3 * p:
+                        dropout_mode = "image_only"
+                    else:
+                        dropout_mode = "normal"
+                elif p > 0:
+                    dropout_mode = "text_only" if random.random() < p else "normal"
                 else:
-                    replace_empty_embeddings = False
-                prompt_empty_drop_keys = self.data_config.prompt_empty_drop_keys
-                data = self.cache_manager.load_cache(data, replace_empty_embeddings, prompt_empty_drop_keys)
+                    dropout_mode = "normal"
+
+                data = self.cache_manager.load_cache(data, dropout_mode)
                 data["cached"] = True
             except Exception as e:
-                # If cache loading fails (corrupted file), fall back to raw data
-                # This allows cache building to continue even with partial corruption
                 print(f"Warning: Failed to load cache for sample, using raw data: {e}")
                 data["cached"] = False
         if "controls" in data:

@@ -91,36 +91,61 @@ class EmbeddingCacheManager:
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
 
-    def load_cache(self, data, replace_empty_embeddings: bool = False, prompt_empty_drop_keys: list[str] = None):
-        """Load cache embeddings and img_shapes"""
+    def load_cache(self, data, dropout_mode: str = "normal"):
+        """Load cache embeddings, applying conditioning dropout per InstructPix2Pix.
+
+        Args:
+            data: Sample dict (must contain ``file_hashes``).
+            dropout_mode: One of ``"normal"``, ``"text_only"``, ``"image_only"``,
+                or ``"both"``.  Controls which cached embeddings are swapped in:
+
+                * ``"normal"``     -- use real (control, prompt) embeddings.
+                * ``"text_only"``  -- replace prompt_embeds with empty-text versions.
+                * ``"image_only"`` -- replace prompt_embeds with blank-image versions,
+                                      zero out control_latents.
+                * ``"both"``       -- replace prompt_embeds with blank-image + empty-text
+                                      versions, zero out control_latents.
+        """
         main_hash = data["file_hashes"]["main_hash"]
         metadata_path = self.get_metadata_path(self.cache_root, main_hash)
         with open(metadata_path) as f:
             metadata = json.load(f)
 
-        # Load embeddings
         for embedding_key, hash_value in metadata.items():
-            # Skip metadata fields
             if embedding_key in ["version", "img_shapes"]:
                 continue
-            if embedding_key.startswith("empty_"):
+            if embedding_key.startswith("empty_") or embedding_key.startswith("noimage_"):
                 continue
-
             cache_path = self.get_cache_embedding_path(embedding_key, hash_value)
             embedding = torch.load(cache_path, map_location="cpu", weights_only=False)
             data[embedding_key] = embedding
 
-        # # Load img_shapes
-        # if "img_shapes" in metadata:
-        #     data["img_shapes"] = torch.tensor(metadata["img_shapes"])
-
-        if replace_empty_embeddings and prompt_empty_drop_keys:
-            for key in prompt_empty_drop_keys:
+        if dropout_mode == "text_only":
+            for key in ["empty_prompt_embeds", "empty_prompt_embeds_mask"]:
                 original_key = key.replace("empty_", "")
                 hash_value = metadata[key]
-                empty_cache_path = self.get_cache_embedding_path(key, hash_value)
-                empty_embedding = torch.load(empty_cache_path, map_location="cpu", weights_only=False)
-                data[original_key] = empty_embedding
+                cache_path = self.get_cache_embedding_path(key, hash_value)
+                data[original_key] = torch.load(cache_path, map_location="cpu", weights_only=False)
+
+        elif dropout_mode in ("image_only", "both"):
+            if dropout_mode == "image_only":
+                src_keys = ["noimage_prompt_embeds", "noimage_prompt_embeds_mask"]
+            else:
+                src_keys = ["noimage_empty_prompt_embeds", "noimage_empty_prompt_embeds_mask"]
+
+            if src_keys[0] in metadata:
+                for key in src_keys:
+                    dst_key = key.replace("noimage_empty_", "").replace("noimage_", "")
+                    hash_value = metadata[key]
+                    cache_path = self.get_cache_embedding_path(key, hash_value)
+                    data[dst_key] = torch.load(cache_path, map_location="cpu", weights_only=False)
+                data["control_latents"] = torch.zeros_like(data["control_latents"])
+            else:
+                import logging
+                logging.warning(
+                    "Cache missing noimage embeddings -- falling back to normal mode. "
+                    "Rebuild the cache to enable image dropout."
+                )
 
         return data
 

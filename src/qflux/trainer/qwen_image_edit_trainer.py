@@ -430,6 +430,21 @@ class QwenImageEditTrainer(BaseTrainer):
             batch["empty_prompt_embeds_mask"] = empty_prompt_embeds_mask
             batch["empty_prompt_embeds"] = empty_prompt_embeds
 
+            blank_control = torch.zeros_like(batch["prompt_control"])
+            noimage_prompt_embeds, noimage_prompt_mask = self.encode_prompt(
+                prompt=batch["prompt"],
+                image=blank_control,
+            )
+            batch["noimage_prompt_embeds"] = noimage_prompt_embeds
+            batch["noimage_prompt_embeds_mask"] = noimage_prompt_mask
+
+            noimage_empty_embeds, noimage_empty_mask = self.encode_prompt(
+                prompt=[""],
+                image=blank_control,
+            )
+            batch["noimage_empty_prompt_embeds"] = noimage_empty_embeds
+            batch["noimage_empty_prompt_embeds_mask"] = noimage_empty_mask
+
         if "negative_prompt" in batch and batch["true_cfg_scale"] > 1:
             # only for predict stage
             negative_prompt_embeds, negative_prompt_embeds_mask = self.encode_prompt(
@@ -514,7 +529,11 @@ class QwenImageEditTrainer(BaseTrainer):
         prompt_embeds_mask = data["prompt_embeds_mask"].detach().cpu()[0]
         empty_prompt_embeds = data["empty_prompt_embeds"].detach().cpu()[0]
         empty_prompt_embeds_mask = data["empty_prompt_embeds_mask"].detach().cpu()[0]
-        # img_shapes now is calculated in dataset, do not need any more
+        noimage_prompt_embeds = data["noimage_prompt_embeds"].detach().cpu()[0]
+        noimage_prompt_embeds_mask = data["noimage_prompt_embeds_mask"].detach().cpu()[0]
+        noimage_empty_prompt_embeds = data["noimage_empty_prompt_embeds"].detach().cpu()[0]
+        noimage_empty_prompt_embeds_mask = data["noimage_empty_prompt_embeds_mask"].detach().cpu()[0]
+
         cache_embeddings = {
             "image_latents": image_latents,
             "control_latents": control_latents,
@@ -522,7 +541,10 @@ class QwenImageEditTrainer(BaseTrainer):
             "prompt_embeds": prompt_embeds,
             "empty_prompt_embeds_mask": empty_prompt_embeds_mask,
             "empty_prompt_embeds": empty_prompt_embeds,
-            # "img_shapes": img_shapes,
+            "noimage_prompt_embeds": noimage_prompt_embeds,
+            "noimage_prompt_embeds_mask": noimage_prompt_embeds_mask,
+            "noimage_empty_prompt_embeds": noimage_empty_prompt_embeds,
+            "noimage_empty_prompt_embeds_mask": noimage_empty_prompt_embeds_mask,
         }
         map_keys = {
             "image_latents": "image_hash",
@@ -531,6 +553,10 @@ class QwenImageEditTrainer(BaseTrainer):
             "prompt_embeds": "control_prompt_hash",
             "empty_prompt_embeds_mask": "control_empty_prompt_hash",
             "empty_prompt_embeds": "control_empty_prompt_hash",
+            "noimage_prompt_embeds": "noimage_prompt_hash",
+            "noimage_prompt_embeds_mask": "noimage_prompt_hash",
+            "noimage_empty_prompt_embeds": "noimage_empty_prompt_hash",
+            "noimage_empty_prompt_embeds_mask": "noimage_empty_prompt_hash",
         }
         self.cache_manager.save_cache_embedding(cache_embeddings, map_keys, data["file_hashes"])
 
