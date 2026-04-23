@@ -527,11 +527,10 @@ class QwenImageEditTrainer(BaseTrainer):
         map_keys = {
             "image_latents": "image_hash",
             "control_latents": "controls_sum_hash",
-            "prompt_embeds_mask": "prompt_hash",
-            "prompt_embeds": "prompt_hash",
-            "empty_prompt_embeds_mask": "prompt_hash",
-            "empty_prompt_embeds": "prompt_hash",
-            # "img_shapes": "main_hash",
+            "prompt_embeds_mask": "control_prompt_hash",
+            "prompt_embeds": "control_prompt_hash",
+            "empty_prompt_embeds_mask": "control_empty_prompt_hash",
+            "empty_prompt_embeds": "control_empty_prompt_hash",
         }
         self.cache_manager.save_cache_embedding(cache_embeddings, map_keys, data["file_hashes"])
 
