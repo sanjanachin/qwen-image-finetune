@@ -32,6 +32,7 @@ import argparse
 import gc
 import json
 import re
+import shutil
 import sys
 import time
 from collections import defaultdict
@@ -498,6 +499,9 @@ def main():
     parser.add_argument("--results-dir", default=None, help="Output directory (default: auto under checkpoint)")
     parser.add_argument("--resume", default=None,
                         help="Path to an existing results dir to resume from (skips completed phases)")
+    parser.add_argument("--base-results", default=None,
+                        help="Path to a previous results.json containing base model results. "
+                             "Skips base model inference entirely and only runs the fine-tuned model.")
     args = parser.parse_args()
 
     # ------------------------------------------------------------------
@@ -562,18 +566,52 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # Check for existing results when resuming
+    # Check for existing results (--base-results or --resume)
     # ------------------------------------------------------------------
     base_cached = None
     ft_cached = None
+
+    if args.base_results:
+        br_path = Path(args.base_results)
+        if not br_path.exists():
+            sys.exit(f"Error: Base results file not found at {br_path}")
+        with open(br_path) as f:
+            prev = json.load(f)
+        if prev.get("num_samples") != len(samples):
+            sys.exit(f"Error: Base results have {prev['num_samples']} samples "
+                     f"but test set has {len(samples)}")
+        base_gt = [s["ground_truth"] for s in prev["per_sample"]]
+        base_pred = [s["base_detected"] for s in prev["per_sample"]]
+        base_cached = (base_gt, base_pred)
+        print(f"Loaded base model results from: {br_path}")
+
+        # Copy per-sample base files (images + meta) from the source eval dir
+        if save_dir is not None:
+            src_eval_dir = br_path.parent
+            copied = 0
+            for idx, ps in enumerate(prev["per_sample"]):
+                src_sample = src_eval_dir / f"sample_{idx:05d}"
+                dst_sample = save_dir / f"sample_{idx:05d}"
+                if not src_sample.exists():
+                    continue
+                dst_sample.mkdir(parents=True, exist_ok=True)
+                for fname in ("base_meta.json", "base_output.png", "control.png"):
+                    src_file = src_sample / fname
+                    if src_file.exists() and not (dst_sample / fname).exists():
+                        shutil.copy2(src_file, dst_sample / fname)
+                        copied += 1
+            if copied:
+                print(f"Copied {copied} base result files from {src_eval_dir}")
+
     if save_dir is not None and save_dir.exists():
-        base_cached = load_saved_results(save_dir, "base", len(samples))
+        if base_cached is None:
+            base_cached = load_saved_results(save_dir, "base", len(samples))
         ft_cached = load_saved_results(save_dir, "finetuned", len(samples))
 
     need_base = base_cached is None
     need_ft = ft_cached is None
 
-    if not need_base:
+    if not need_base and not args.base_results:
         print("Base model results found on disk -- skipping base inference.")
         base_gt, base_pred = base_cached
     if not need_ft:
