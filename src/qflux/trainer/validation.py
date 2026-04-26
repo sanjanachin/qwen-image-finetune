@@ -398,6 +398,26 @@ class ValidationMixin:
         logging.info(f"[{self.accelerator.process_index}] rank {self.accelerator.process_index} finished validation")
         # self.accelerator.wait_for_everyone()
 
+    def compute_val_loss(self):
+        """Compute average loss over the full validation set and log to TensorBoard."""
+        if not hasattr(self, "val_dataloader") or self.val_dataloader is None:
+            return
+        logger.info(f"Computing validation loss at step {self.global_step}")
+        self.dit.eval()
+        total_loss = 0.0
+        num_batches = 0
+        with torch.no_grad():
+            for batch in self.val_dataloader:
+                embeddings = self.prepare_cached_embeddings(batch)
+                loss = self._compute_loss(embeddings)
+                total_loss += self.accelerator.gather(loss.detach()).mean().item()
+                num_batches += 1
+        avg_val_loss = total_loss / num_batches if num_batches > 0 else 0.0
+        logger.info(f"Validation loss at step {self.global_step}: {avg_val_loss:.6f}")
+        self.logger_manager.log_metrics({"val_loss": avg_val_loss}, step=self.global_step)
+        self.logger_manager.flush()
+        self.dit.train()
+
     def _log_validation_images(self, log_images: list[torch.Tensor], validation_samples: list[dict[str, Any]]):
         """
         Log validation images and metadata using LoggerManager.

@@ -415,17 +415,22 @@ class BaseTrainer(ValidationMixin, ABC):
         self.dit.merge_adapter()
         logging.info("Merged LoRA weights into base model")
 
-    def cache(self, train_dataloader):
+    def cache(self, train_dataloader, val_dataloader=None):
         """Pre-compute and cache embeddings/latents for training efficiency."""
         logging.info("Starting embedding caching process...")
         self.load_model()
         self.setup_model_device_train_mode(stage="cache", cache=True)
-        # Cache for each item (same loop structure as QwenImageEditTrainer)
 
-        for batch in tqdm(train_dataloader, total=len(train_dataloader), desc="cache_embeddings"):
+        for batch in tqdm(train_dataloader, total=len(train_dataloader), desc="cache_train_embeddings"):
             batch = self.prepare_embeddings(batch, stage="cache")
             self.cache_step(batch)
-        
+
+        if val_dataloader is not None:
+            logging.info("Caching validation embeddings...")
+            for batch in tqdm(val_dataloader, total=len(val_dataloader), desc="cache_val_embeddings"):
+                batch = self.prepare_embeddings(batch, stage="cache")
+                self.cache_step(batch)
+
         self.destroy_models()
         logging.info("Cache completed")
 
@@ -558,13 +563,10 @@ class BaseTrainer(ValidationMixin, ABC):
 
                 # Run validation if needed
                 if self.should_run_validation(self.global_step):
-                    # logging.info("Starting validation at step %d", self.global_step)
                     self.fps_logger.pause()
-                    # logging.info("FPS logger paused, calling run_validation()")
+                    self.compute_val_loss()
                     self.run_validation()
-                    # logging.info("run_validation() returned, resuming FPS logger")
                     self.fps_logger.resume()
-                    # logging.info("Validation complete, FPS logger resumed")
 
     def setup_progressbar(self):
         self.train_loss = 0.0
@@ -606,7 +608,7 @@ class BaseTrainer(ValidationMixin, ABC):
         self.global_step += 1
         self.progress_bar.set_postfix(logs)
 
-    def fit(self, train_dataloader):
+    def fit(self, train_dataloader, val_dataloader=None):
         """Main training loop implementation."""
         import torch.multiprocessing as mp
 
@@ -638,9 +640,12 @@ class BaseTrainer(ValidationMixin, ABC):
         self.setup_model_device_train_mode(stage="fit", cache=self.use_cache)
         self.configure_optimizers()
         self.setup_criterion()
-        # if validation dataset not passed, use train dataset instead
 
         train_dataloader = self.accelerator_prepare(train_dataloader)
+        if val_dataloader is not None:
+            self.val_dataloader = self.accelerator.prepare(val_dataloader)
+        else:
+            self.val_dataloader = None
         logging.info("***** Running training *****")
         model_summary_info_dict = print_model_summary_table(self.dit)
         self.logger_manager.log_table(

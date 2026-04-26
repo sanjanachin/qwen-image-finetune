@@ -56,6 +56,8 @@ validation:
         prompt: prompt
       caption_dropout_rate: 0.0
       prompt_image_dropout_rate: 0.0
+      cache_dir: ${cache.cache_dir}
+      use_cache: ${cache.use_cache}
       processor:
         class_path: qflux.data.preprocess.ImageProcessor
         init_args:

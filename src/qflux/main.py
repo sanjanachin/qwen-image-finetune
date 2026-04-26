@@ -84,6 +84,25 @@ def main():
         drop_last=droplast,
     )
 
+    # Build val DataLoader when validation is enabled and has a dataset config
+    val_dataloader = None
+    if (
+        config.validation.enabled
+        and hasattr(config.validation, "dataset")
+        and config.validation.dataset is not None
+    ):
+        val_init_args = config.validation.dataset.init_args
+        if config.mode == TrMode.cache:
+            val_init_args.use_cache = False
+        val_dataloader = loader(
+            config.validation.dataset.class_path,
+            val_init_args,
+            batch_size=batch_size if config.mode != TrMode.cache else 1,
+            num_workers=config.data.num_workers,
+            shuffle=False,
+            drop_last=False,
+        )
+
     if config.mode == TrMode.cache:
         try:
             from accelerate.hooks import remove_hook_from_module
@@ -92,10 +111,9 @@ def main():
         except Exception as e:
             print("remove_hook skipped:", repr(e))
 
-        trainer.cache(train_dataloader)
+        trainer.cache(train_dataloader, val_dataloader=val_dataloader)
     else:
-        # 开始训练
-        trainer.fit(train_dataloader)
+        trainer.fit(train_dataloader, val_dataloader=val_dataloader)
 
 
 if __name__ == "__main__":
