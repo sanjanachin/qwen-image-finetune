@@ -78,12 +78,12 @@ logging:
 optimizer:
   class_path: bitsandbytes.optim.Adam8bit
   init_args:
-    lr: 0.0001
+    lr: 0.00005
     betas: [0.9, 0.999]
 
 lr_scheduler:
   scheduler_type: "cosine"
-  warmup_steps: 100
+  warmup_steps: 500
   num_cycles: 0.5
   power: 1.0
 
