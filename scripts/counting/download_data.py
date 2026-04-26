@@ -26,9 +26,9 @@ import boto3
 S3_BUCKET = "counting-dataset"
 S3_REGION = "us-west-2"
 SPLITS = {
-    "train": "count-dataset-splits/train/data",
-    "val": "count-dataset-splits/val/data",
-    "test": "count-dataset-splits/test/data",
+    "train": "count-dataset-splits-filtered/train/data",
+    "val": "count-dataset-splits-filtered/val/data",
+    "test": "count-dataset-splits-filtered/test/data",
 }
 
 
