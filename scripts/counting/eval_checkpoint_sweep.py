@@ -472,6 +472,23 @@ def main():
     pipe = load_pipeline(model_path)
 
     # ------------------------------------------------------------------
+    # Save original images once (shared across all checkpoints)
+    # ------------------------------------------------------------------
+    if args.save_images:
+        originals_dir = output_dir / "images" / "originals"
+        if not originals_dir.exists():
+            originals_dir.mkdir(parents=True, exist_ok=True)
+            print("Saving original images...")
+            for idx, sample in enumerate(samples):
+                img = sample["original_image"]
+                if not isinstance(img, Image.Image):
+                    img = Image.open(img).convert("RGB")
+                else:
+                    img = img.convert("RGB")
+                img.save(originals_dir / f"sample_{idx:03d}.png")
+            print(f"  Saved {len(samples)} originals to {originals_dir}")
+
+    # ------------------------------------------------------------------
     # Evaluate base model (step 0)
     # ------------------------------------------------------------------
     if "0" not in results["checkpoints"]:
