@@ -91,7 +91,7 @@ lr_scheduler:
 
 train:
   gradient_accumulation_steps: 1
-  max_train_steps: 88100  # ~10 epochs (17620 samples / batch 1 / grad_accum 2 * 10)
+  max_train_steps: 80460  # ~10 epochs (16091 samples / batch 2 * 10)
   checkpointing_steps: 500
   checkpoints_total_limit: 5
   max_grad_norm: 1.0
