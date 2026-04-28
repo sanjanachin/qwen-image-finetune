@@ -31,12 +31,14 @@ data:
     processor:
       class_path: qflux.data.preprocess.ImageProcessor
       init_args:
+        # Match native parquet resolution (1024x1024); avoids train/eval resize mismatch vs 512.
         process_type: center_crop
         resize_mode: bilinear
-        target_size: [512, 512]
-        controls_size: [[512, 512]]
+        target_size: [1024, 1024]
+        controls_size: [[1024, 1024]]
 
-  batch_size: 2
+  # batch 1 + grad_accum 2 keeps effective batch 2 vs prior batch 2; lowers VRAM at 1024^2.
+  batch_size: 1
   num_workers: 4
   shuffle: true
 
@@ -61,10 +63,11 @@ validation:
       processor:
         class_path: qflux.data.preprocess.ImageProcessor
         init_args:
+          # Same 1024x1024 as train / parquet native size.
           process_type: center_crop
           resize_mode: bilinear
-          target_size: [512, 512]
-          controls_size: [[512, 512]]
+          target_size: [1024, 1024]
+          controls_size: [[1024, 1024]]
 
 logging:
   output_dir: ${oc.env:QFLUX_REPO_ROOT}/outputs/counting_lora
@@ -90,8 +93,9 @@ lr_scheduler:
   power: 1.0
 
 train:
-  gradient_accumulation_steps: 1
-  max_train_steps: 80460  # ~10 epochs (16091 samples / batch 2 * 10)
+  gradient_accumulation_steps: 2
+  # ~10 epochs: 16091 samples / (batch_size 1 * grad_accum 2) * 10 ≈ 80455; rounded to prior budget.
+  max_train_steps: 80460
   checkpointing_steps: 500
   checkpoints_total_limit: 5
   max_grad_norm: 1.0

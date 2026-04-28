@@ -14,6 +14,10 @@
 #      python scripts/counting/download_data.py
 #   2. Activate the conda environment:
 #      conda activate qwen-image-edit
+#   3. If you changed processor resolution (e.g. 512 -> 1024) or data paths, delete the old
+#      embedding cache before Phase 1, or training will use stale latents/embeddings.
+#      From the repo root (after export QFLUX_REPO_ROOT=...): rm -rf outputs/counting_lora/cache
+#      (matches cache.cache_dir in configs/counting_qwen_image_edit.yaml)
 
 set -euo pipefail
 
@@ -114,8 +118,8 @@ else
     echo ""
 
     echo "Phase 2: Starting training..."
-    echo "  Steps:        ~88,100 (10 epochs)"
-    echo "  Batch size:   1 (effective 2 with grad accum)"
+    echo "  Steps:        ~80,460 (see max_train_steps in config; ~10 epochs at eff. batch 2)"
+    echo "  Batch size:   1 (effective 2 with gradient_accumulation_steps: 2)"
     echo "  Checkpoints:  every 500 steps"
     echo "  Validation:   every 250 steps"
     echo ""

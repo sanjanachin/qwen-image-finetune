@@ -117,11 +117,14 @@ def evaluate_checkpoint(
     inf_cfg: dict,
     seed: int | None,
     save_dir: Path | None = None,
+    eval_size: int | None = None,
 ) -> tuple[list[int], list[int]]:
     """Run inference + SAM3 counting, return (ground_truths, predictions).
 
     If save_dir is provided, saves each generated image and a per-sample
     metadata JSON file into that directory.
+    If eval_size is provided, resize input images to eval_size x eval_size
+    before inference (to test resolution effects).
     """
     if save_dir is not None:
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -141,6 +144,11 @@ def evaluate_checkpoint(
             original_image = Image.open(original_image).convert("RGB")
         else:
             original_image = original_image.convert("RGB")
+
+        if eval_size is not None:
+            original_image = original_image.resize(
+                (eval_size, eval_size), Image.LANCZOS,
+            )
 
         if generator is not None and seed is not None:
             generator.manual_seed(seed + idx)
@@ -377,6 +385,11 @@ def main():
         "--save-images", action="store_true",
         help="Save all generated images and per-sample metadata for each checkpoint",
     )
+    parser.add_argument(
+        "--eval-size", type=int, default=None,
+        help="Resize input images to this square size before inference (e.g. 512). "
+             "Default: use native resolution.",
+    )
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir)
@@ -494,7 +507,7 @@ def main():
     if "0" not in results["checkpoints"]:
         print("\n=== Step 0: Base model (no LoRA) ===")
         img_dir = (output_dir / "images" / "step_0") if args.save_images else None
-        gt, pred = evaluate_checkpoint(pipe, samples, counter, inf_cfg, seed, save_dir=img_dir)
+        gt, pred = evaluate_checkpoint(pipe, samples, counter, inf_cfg, seed, save_dir=img_dir, eval_size=args.eval_size)
         overall = compute_metrics(gt, pred)
         per_count = compute_per_count_metrics(gt, pred)
         results["checkpoints"]["0"] = {
@@ -522,7 +535,7 @@ def main():
         pipe.load_lora_weights(lora_file)
 
         img_dir = (output_dir / "images" / f"step_{step}") if args.save_images else None
-        gt, pred = evaluate_checkpoint(pipe, samples, counter, inf_cfg, seed, save_dir=img_dir)
+        gt, pred = evaluate_checkpoint(pipe, samples, counter, inf_cfg, seed, save_dir=img_dir, eval_size=args.eval_size)
 
         pipe.unload_lora_weights()
 
