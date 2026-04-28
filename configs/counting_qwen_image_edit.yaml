@@ -25,7 +25,10 @@ data:
       control: original_image
       prompt: prompt
     caption_dropout_rate: 0.05
-    prompt_image_dropout_rate: 0.05
+    # Disabled: zero-control branches (image_only/both) trained the LoRA to synthesize N
+    # objects from prompt alone, which superimposes objects on top of the input scene at
+    # inference and is the leading suspect for the persistent overcounting bias in v0-v2.
+    prompt_image_dropout_rate: 0.0
     cache_dir: ${cache.cache_dir}
     use_cache: ${cache.use_cache}
     processor:
