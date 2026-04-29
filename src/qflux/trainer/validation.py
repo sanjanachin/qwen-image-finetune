@@ -304,6 +304,12 @@ class ValidationMixin:
         height = sample.get("height", images[0].height)
         width = sample.get("width", images[0].width)
 
+        # CFG defaults come from validation_config so val panels match eval-time
+        # behavior (see ValidationConfig.true_cfg_scale). Per-sample override via
+        # the sample dict still wins.
+        true_cfg_scale = sample.get("true_cfg_scale", self.validation_config.true_cfg_scale)
+        negative_prompt = sample.get("negative_prompt", self.validation_config.negative_prompt)
+
         # Prepare batch using trainer's prepare_predict_batch_data method
         batch = self.prepare_predict_batch_data(  # type: ignore
             image=images,
@@ -311,9 +317,9 @@ class ValidationMixin:
             controls_size=controls_size,
             height=height,
             width=width,
-            negative_prompt=sample.get("negative_prompt"),
+            negative_prompt=negative_prompt,
             num_inference_steps=sample.get("num_inference_steps", 20),
-            true_cfg_scale=sample.get("true_cfg_scale", 1.0),
+            true_cfg_scale=true_cfg_scale,
         )
 
         return batch

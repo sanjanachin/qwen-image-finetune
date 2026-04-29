@@ -705,6 +705,12 @@ class ValidationConfig(BaseModel):
     seed: int = 42
     dataset: DataConfig | None = None
     samples: list[ValidationSample] | None = None
+    # CFG defaults for validation panels. CFG=1 disables guidance, which makes
+    # val panels uninformative for edit tasks (the model just reconstructs).
+    # Default to CFG=4 with a blank negative prompt so val panels reflect the
+    # behavior used at eval time.
+    true_cfg_scale: float = 4.0
+    negative_prompt: str = " "
 
     @model_validator(mode="after")
     def _check_when_enabled(self) -> Self:

@@ -50,6 +50,10 @@ validation:
   steps: 250
   max_samples: 4
   seed: 42
+  # Match eval-sweep CFG so val panels reflect actual edit behavior; CFG=1 with
+  # strong image conditioning just reconstructs the input and hides issues.
+  true_cfg_scale: 4.0
+  negative_prompt: " "
   dataset:
     class_path: qflux.data.dataset.ImageDataset
     init_args:
