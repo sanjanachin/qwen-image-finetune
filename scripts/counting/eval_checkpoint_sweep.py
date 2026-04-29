@@ -523,51 +523,74 @@ def main():
 
     # ------------------------------------------------------------------
     # Evaluate each checkpoint
+    #
+    # Plots are regenerated after every checkpoint so the latest figures are
+    # always on disk; a KeyboardInterrupt mid-sweep still leaves up-to-date
+    # plots reflecting whatever has been evaluated so far.
     # ------------------------------------------------------------------
-    for step, ckpt_path in checkpoints:
-        step_key = str(step)
-        if step_key in results["checkpoints"]:
-            print(f"\nStep {step} already evaluated, skipping.")
-            continue
+    interrupted = False
+    try:
+        for step, ckpt_path in checkpoints:
+            step_key = str(step)
+            if step_key in results["checkpoints"]:
+                print(f"\nStep {step} already evaluated, skipping.")
+                continue
 
-        print(f"\n=== Step {step}: {ckpt_path.name} ===")
-        lora_file = str(ckpt_path / "pytorch_lora_weights.safetensors")
-        pipe.load_lora_weights(lora_file)
+            print(f"\n=== Step {step}: {ckpt_path.name} ===")
+            lora_file = str(ckpt_path / "pytorch_lora_weights.safetensors")
+            pipe.load_lora_weights(lora_file)
 
-        img_dir = (output_dir / "images" / f"step_{step}") if args.save_images else None
-        gt, pred = evaluate_checkpoint(pipe, samples, counter, inf_cfg, seed, save_dir=img_dir, eval_size=args.eval_size)
+            img_dir = (output_dir / "images" / f"step_{step}") if args.save_images else None
+            gt, pred = evaluate_checkpoint(pipe, samples, counter, inf_cfg, seed, save_dir=img_dir, eval_size=args.eval_size)
 
-        pipe.unload_lora_weights()
+            pipe.unload_lora_weights()
 
-        overall = compute_metrics(gt, pred)
-        per_count = compute_per_count_metrics(gt, pred)
+            overall = compute_metrics(gt, pred)
+            per_count = compute_per_count_metrics(gt, pred)
 
-        results["checkpoints"][step_key] = {
-            "overall": overall,
-            "per_count": {str(k): v for k, v in per_count.items()},
-        }
+            results["checkpoints"][step_key] = {
+                "overall": overall,
+                "per_count": {str(k): v for k, v in per_count.items()},
+            }
 
-        with open(results_path, "w") as f:
-            json.dump(results, f, indent=2)
+            with open(results_path, "w") as f:
+                json.dump(results, f, indent=2)
 
-        print(f"  Accuracy={overall['accuracy']:.1f}%  MAE={overall['mae']:.2f}  "
-              f"MSE={overall['mean_signed_error']:.2f}")
+            print(f"  Accuracy={overall['accuracy']:.1f}%  MAE={overall['mae']:.2f}  "
+                  f"MSE={overall['mean_signed_error']:.2f}")
 
-    # ------------------------------------------------------------------
-    # Cleanup GPU
-    # ------------------------------------------------------------------
-    del pipe
-    counter.unload()
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+            if len(results["checkpoints"]) >= 2:
+                generate_plots(results, output_dir)
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\n\nKeyboardInterrupt received. Finalizing plots from completed checkpoints...")
+    finally:
+        # ------------------------------------------------------------------
+        # Cleanup GPU
+        # ------------------------------------------------------------------
+        try:
+            del pipe
+            counter.unload()
+        except Exception:
+            pass
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
-    # ------------------------------------------------------------------
-    # Generate plots
-    # ------------------------------------------------------------------
-    generate_plots(results, output_dir)
+        # ------------------------------------------------------------------
+        # Generate plots (final pass; safe with partial results)
+        # ------------------------------------------------------------------
+        if len(results["checkpoints"]) >= 2:
+            generate_plots(results, output_dir)
+        else:
+            print(
+                f"\nOnly {len(results['checkpoints'])} checkpoint(s) evaluated; "
+                f"need >=2 for plots. Skipping plot generation."
+            )
 
     print(f"\nAll results saved to: {output_dir}")
+    if interrupted:
+        sys.exit(130)
     print("Done.")
 
 
