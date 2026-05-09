@@ -118,7 +118,7 @@ else
     echo ""
 
     echo "Phase 2: Starting training..."
-    echo "  Steps:        ~80,460 (see max_train_steps in config; ~10 epochs at eff. batch 2)"
+    echo "  Steps:        10,000 (see max_train_steps in config; ~1.25 epochs at eff. batch 2)"
     echo "  Batch size:   1 (effective 2 with gradient_accumulation_steps: 2)"
     echo "  Checkpoints:  every 500 steps"
     echo "  Validation:   every 250 steps"
