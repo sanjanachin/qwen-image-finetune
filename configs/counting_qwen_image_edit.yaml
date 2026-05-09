@@ -90,7 +90,10 @@ logging:
 optimizer:
   class_path: bitsandbytes.optim.Adam8bit
   init_args:
-    lr: 0.00005
+    # v3 (lr=5e-5, max_steps=80460) drifted past its peak around step ~1500 and developed a
+    # high-count overcount bias. Lowered to 1e-5 to slow drift and let cosine decay actually
+    # shrink the LR over the planned run length (vs. v3 where LR stayed near peak the whole time).
+    lr: 0.00001
     betas: [0.9, 0.999]
 
 lr_scheduler:
@@ -101,8 +104,9 @@ lr_scheduler:
 
 train:
   gradient_accumulation_steps: 2
-  # ~10 epochs: 16091 samples / (batch_size 1 * grad_accum 2) * 10 ≈ 80455; rounded to prior budget.
-  max_train_steps: 80460
+  # ~1.25 epochs: 16091 samples / (batch_size 1 * grad_accum 2) ≈ 8045 steps/epoch.
+  # Sized so the cosine schedule actually decays (vs. v3's 80460 which kept LR near peak).
+  max_train_steps: 10000
   checkpointing_steps: 500
   checkpoints_total_limit: 5
   max_grad_norm: 1.0
