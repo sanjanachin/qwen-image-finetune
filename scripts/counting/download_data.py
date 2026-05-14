@@ -42,7 +42,7 @@ import tempfile
 from pathlib import Path
 
 import boto3
-import pyarrow as pa  # noqa: F401 (imported for type consistency; pc/pq do the work)
+import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
@@ -56,20 +56,43 @@ def _split_prefixes(base_prefix: str) -> dict[str, str]:
     return {split: f"{base_prefix}/{split}/data" for split in ("train", "val", "test")}
 
 
-def _is_already_filtered(local_path: str) -> bool:
-    """Return True if the local parquet exists, has an is_good column, and all values are True.
+def _is_already_filtered(
+    local_path: str,
+    only_good: bool = False,
+    count_filter: int | None = None,
+) -> bool:
+    """Return True if the local parquet already satisfies the requested filters.
 
-    Used as the skip-check when --only-good is active. The normal byte-size comparison
-    cannot be used there because the filtered file is smaller than the S3 object.
+    Reads only the columns needed for the check (is_good, count_added) so it
+    stays fast even for large shards. Used as the skip-check when any filtering
+    is active, replacing the byte-size comparison which breaks when the local file
+    is smaller than the S3 object.
+
+    Returns False when no filters are active (caller falls through to the normal
+    byte-size check in that case).
     """
+    if not only_good and count_filter is None:
+        return False
     if not os.path.exists(local_path):
         return False
     try:
-        table = pq.read_table(local_path, columns=["is_good"])
-        col = table.column("is_good")
-        if len(col) == 0:
+        cols = []
+        if only_good:
+            cols.append("is_good")
+        if count_filter is not None:
+            cols.append("count_added")
+        table = pq.read_table(local_path, columns=cols)
+        if len(table) == 0:
             return False
-        return col.null_count == 0 and pc.all(col).as_py()
+        if only_good:
+            col = table.column("is_good")
+            if col.null_count != 0 or not pc.all(col).as_py():
+                return False
+        if count_filter is not None:
+            counts = table.column("count_added")
+            if not pc.all(pc.equal(counts, count_filter)).as_py():
+                return False
+        return True
     except Exception:
         return False
 
@@ -80,17 +103,23 @@ def download_split(
     local_dir: str,
     region: str,
     only_good: bool = False,
+    count_filter: int | None = None,
 ) -> tuple[list[str], int, int]:
     """Download all parquet files from an S3 prefix into local_dir.
 
-    When only_good=True each shard is filtered to rows where is_good=True before
-    being written locally. The skip-check is content-based (verifies the is_good
-    column) rather than byte-size-based, so it works correctly across runs and when
+    When only_good=True and/or count_filter is set, each shard is filtered before
+    being written locally. Filters are composable: when both are active a row must
+    satisfy is_good=True AND count_added==count_filter.
+
+    The skip-check is content-based when any filter is active (verifies the relevant
+    columns) rather than byte-size-based, so it works correctly across runs and when
     switching between filtered and unfiltered modes.
 
     Returns:
         (local_files, total_rows_kept, total_rows_source)
     """
+    needs_filter = only_good or count_filter is not None
+
     s3 = boto3.client("s3", region_name=region)
     os.makedirs(local_dir, exist_ok=True)
 
@@ -107,10 +136,10 @@ def download_split(
             filename = os.path.basename(key)
             local_path = os.path.join(local_dir, filename)
 
-            if only_good:
-                if _is_already_filtered(local_path):
+            if needs_filter:
+                if _is_already_filtered(local_path, only_good=only_good, count_filter=count_filter):
                     n_kept = pq.read_metadata(local_path).num_rows
-                    print(f"  Cached {filename} ({n_kept} rows, all is_good=True)")
+                    print(f"  Cached {filename} ({n_kept} rows, filters already applied)")
                     total_kept += n_kept
                     local_files.append(local_path)
                     continue
@@ -127,20 +156,32 @@ def download_split(
                     n_source = len(table)
                     total_source += n_source
 
-                    if "is_good" not in table.schema.names:
+                    if only_good and "is_good" not in table.schema.names:
                         raise ValueError(
                             f"Parquet shard {key!r} has no 'is_good' column. "
                             "Ensure evaluate_split_quality.py has finished and "
                             "uploaded to the evaluated prefix before using --only-good."
                         )
+                    if count_filter is not None and "count_added" not in table.schema.names:
+                        raise ValueError(
+                            f"Parquet shard {key!r} has no 'count_added' column. "
+                            "This column is required for --count filtering."
+                        )
 
-                    filtered = table.filter(pc.field("is_good") == True)  # noqa: E712
+                    # Build a composable boolean mask
+                    mask = pa.array([True] * n_source)
+                    if only_good:
+                        mask = pc.and_(mask, pc.field("is_good") == True)  # noqa: E712
+                    if count_filter is not None:
+                        mask = pc.and_(mask, pc.field("count_added") == count_filter)
+                    filtered = table.filter(mask)
+
                     n_kept = len(filtered)
                     total_kept += n_kept
                     pq.write_table(filtered, local_path)
                     print(
                         f"  {filename}: kept {n_kept}/{n_source} rows "
-                        f"({100 * n_kept / n_source:.0f}% is_good)"
+                        f"({100 * n_kept / n_source:.0f}% match filters)"
                     )
                 finally:
                     if os.path.exists(tmp_path):
@@ -194,6 +235,18 @@ def main():
         default=S3_PREFIX_EVALUATED,
         help="S3 prefix for LLM-evaluated data (used with --only-good)",
     )
+    parser.add_argument(
+        "--count",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Keep only rows where count_added equals N. count_added is the "
+            "SAM3-verified number of objects actually added and is the value "
+            "substituted into the training prompt. Independent of --only-good; "
+            "when both are set rows must satisfy both conditions. Example: --count 9"
+        ),
+    )
     parser.add_argument("--region", type=str, default=S3_REGION)
     parser.add_argument("--bucket", type=str, default=S3_BUCKET)
     args = parser.parse_args()
@@ -213,6 +266,7 @@ def main():
     print(f"  Output dir:  {output_dir}")
     print(f"  Splits:      {', '.join(args.splits)}")
     print(f"  Only-good:   {'yes (is_good=True rows only)' if args.only_good else 'no (all rows)'}")
+    print(f"  Count filter: {args.count if args.count is not None else 'none (all counts)'}")
     print()
 
     split_stats: dict[str, tuple[int, int]] = {}
@@ -226,12 +280,13 @@ def main():
             str(split_dir),
             args.region,
             only_good=args.only_good,
+            count_filter=args.count,
         )
         total_mb = sum(os.path.getsize(f) for f in files) / 1e6
-        if args.only_good and source > 0:
+        if (args.only_good or args.count is not None) and source > 0:
             print(
                 f"[{split_name}] {len(files)} parquet file(s), {total_mb:.0f} MB — "
-                f"{kept}/{source} rows kept ({100 * kept / source:.0f}% is_good)"
+                f"{kept}/{source} rows kept ({100 * kept / source:.0f}% match filters)"
             )
         else:
             print(f"[{split_name}] {len(files)} parquet file(s), {total_mb:.0f} MB total")
@@ -247,10 +302,10 @@ def main():
             pq_files = list(split_dir.glob("*.parquet"))
             total_mb = sum(f.stat().st_size for f in pq_files) / 1e6
             kept, source = split_stats.get(split_name, (0, 0))
-            if args.only_good and source > 0:
+            if (args.only_good or args.count is not None) and source > 0:
                 print(
                     f"  {split_name}/: {len(pq_files)} files, {total_mb:.0f} MB "
-                    f"({kept}/{source} rows, {100 * kept / source:.0f}% is_good)"
+                    f"({kept}/{source} rows, {100 * kept / source:.0f}% match filters)"
                 )
             else:
                 print(f"  {split_name}/: {len(pq_files)} files, {total_mb:.0f} MB")
