@@ -169,18 +169,13 @@ def download_split(
                         )
 
                     # Build a composable filter expression
-                    exprs = []
+                    expr: pc.Expression | None = None
                     if only_good:
-                        exprs.append(pc.field("is_good") == True)  # noqa: E712
+                        expr = pc.field("is_good") == True  # noqa: E712
                     if count_filter is not None:
-                        exprs.append(pc.field("count_added") == count_filter)
-                    if exprs:
-                        combined = exprs[0]
-                        for e in exprs[1:]:
-                            combined = pc.and_(combined, e)
-                        filtered = table.filter(combined)
-                    else:
-                        filtered = table
+                        count_expr = pc.field("count_added") == count_filter
+                        expr = count_expr if expr is None else (expr & count_expr)
+                    filtered = table.filter(expr) if expr is not None else table
 
                     n_kept = len(filtered)
                     total_kept += n_kept
