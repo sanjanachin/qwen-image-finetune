@@ -168,13 +168,19 @@ def download_split(
                             "This column is required for --count filtering."
                         )
 
-                    # Build a composable boolean mask
-                    mask = pa.array([True] * n_source)
+                    # Build a composable filter expression
+                    exprs = []
                     if only_good:
-                        mask = pc.and_(mask, pc.field("is_good") == True)  # noqa: E712
+                        exprs.append(pc.field("is_good") == True)  # noqa: E712
                     if count_filter is not None:
-                        mask = pc.and_(mask, pc.field("count_added") == count_filter)
-                    filtered = table.filter(mask)
+                        exprs.append(pc.field("count_added") == count_filter)
+                    if exprs:
+                        combined = exprs[0]
+                        for e in exprs[1:]:
+                            combined = pc.and_(combined, e)
+                        filtered = table.filter(combined)
+                    else:
+                        filtered = table
 
                     n_kept = len(filtered)
                     total_kept += n_kept
